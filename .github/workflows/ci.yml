@@ -14,7 +14,9 @@ jobs:
         with:
           enable-cache: true
       - name: Install
-        run: uv sync --frozen
+        run: |
+          uv sync --frozen
+          uv run playwright install --with-deps chromium
       - name: Lint
         run: |
           uv run ruff check .
