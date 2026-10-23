@@ -6,6 +6,7 @@ Here's what I can do with the Nova Scotia UARB matter database:
 - MORE: reply in the same thread for the next {{ b.batch }}.
 - GET <document number>: reply in the same thread for one specific document.
 - WATCH {{ b.example }}: I'll email you when something new is filed. UNWATCH {{ b.example }} stops it.
+- SEARCH <words>: find pages that mention them in the documents I've already downloaded, for example "SEARCH semi-annual reports in {{ b.example }}". Each match comes with its document number, page and the GET command for it.
 
 The types are {{ b.types }}.
 {% endmacro %}
@@ -18,6 +19,7 @@ The types are {{ b.types }}.
 <li><b>MORE:</b> reply in the same thread for the next {{ b.batch }}.</li>
 <li><b>GET &lt;document number&gt;:</b> reply in the same thread for one specific document.</li>
 <li><b>WATCH {{ b.example }}:</b> I'll email you when something new is filed. UNWATCH {{ b.example }} stops it.</li>
+<li><b>SEARCH &lt;words&gt;:</b> find pages that mention them in the documents I've already downloaded, for example "SEARCH semi-annual reports in {{ b.example }}". Each match comes with its document number, page and the GET command for it.</li>
 </ul>
 <p>The types are {{ b.types }}.</p>
 {% endmacro %}

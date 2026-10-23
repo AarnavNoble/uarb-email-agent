@@ -7,6 +7,7 @@
 
 {% macro text(b) %}
 {{ c.about(b.p) }}
+{{ c.decision_text(b.p) }}
 
 {{ next_step(b) }}
 {{ c.watch_hint(b.matter) }}
@@ -14,5 +15,6 @@
 
 {% macro html(b) %}
 <p>{{ c.about(b.p) }}</p>
+{{ c.decision_html(b.p) }}
 <p>{{ next_step(b) }}<br>{{ c.watch_hint(b.matter) }}</p>
 {% endmacro %}

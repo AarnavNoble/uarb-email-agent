@@ -1,8 +1,12 @@
-"""uarb-agent fetch | parse | simulate | doctor | serve.
+"""uarb-agent fetch | parse | simulate | index | search | mcp | doctor | serve.
 
 uarb-agent fetch M12205 "Other Documents" [--limit N] [--offset N]  ZIP + the reply text, straight from the site
 uarb-agent parse "<email text>" [--subject S]                         what the parser makes of an email
 uarb-agent simulate --from a@b --subject S --body B                   the whole pipeline as an .eml, nothing sent
+uarb-agent index                                                      add every cached document to the search index
+uarb-agent search "<words>" [--matter M12205] [--limit N]           cited pages from documents already downloaded
+uarb-agent mcp                                                        read-only MCP server over stdio (get_matter,
+                                                                      list_documents, download_documents, search)
 uarb-agent doctor                                                     live canary on M12205; non-zero exit on failure
 uarb-agent serve                                                      the email agent (inbox loop + worker + watch)
 """
@@ -35,12 +39,13 @@ from uarb_agent.health import Healthcheck
 from uarb_agent.intent.aliases import match_type
 from uarb_agent.intent.parser import parse
 from uarb_agent.jobs.ledger import Ledger
-from uarb_agent.jobs.worker import Pipeline, Worker
+from uarb_agent.jobs.worker import EMAIL_TIMEOUT_S, Pipeline, Worker, display_name
 from uarb_agent.mail.inbox import parse_inbound
 from uarb_agent.mail.threading import build_reply
 from uarb_agent.models import DOC_TYPES, AgentError, DocType
 from uarb_agent.pack.links import sweep_links
-from uarb_agent.reply.render import render_report
+from uarb_agent.reply.render import greet, render_report
+from uarb_agent.search import run_index, run_search
 
 CANARY_MATTER = "M12205"
 PREVIEW_FROM = "agent@uarb-agent.invalid"
@@ -87,7 +92,7 @@ async def _fetch(args: argparse.Namespace, settings: Settings) -> int:
         report = await fetcher.fetch(args.matter, _doc_type(args.doc_type), args.limit, args.offset)
         out = Path(args.out) if args.out else settings.data_dir / "out" / report.trace_id
         packed = fetcher.pack(report, out)
-        reply = render_report(report, batch=settings.max_docs, link_days=settings.link_ttl_days)
+        reply = render_report(report, batch=settings.max_docs, link_days=settings.link_ttl_days, limit=args.limit)
     except AgentError as e:
         print(f"error: {type(e).__name__}: {e} (trace {e.trace_id})", file=sys.stderr)
         return 1
@@ -155,7 +160,7 @@ async def _simulate(args: argparse.Namespace, settings: Settings) -> int:
     t0 = time.monotonic()
     try:
         handled = await asyncio.wait_for(
-            pipeline.handle(inbound.msg, thread_key=key, thread=ledger.get_thread(key)), 240
+            pipeline.handle(inbound.msg, thread_key=key, thread=ledger.get_thread(key)), EMAIL_TIMEOUT_S
         )
     except Exception as e:
         handled = pipeline.failure(inbound.msg, "simulate", e)
@@ -167,11 +172,12 @@ async def _simulate(args: argparse.Namespace, settings: Settings) -> int:
         return 0
     if handled.thread is not None:
         ledger.save_thread(handled.thread)
+    greeted = greet(handled.reply, display_name(inbound.msg))
     reply = build_reply(
         inbound.msg,
         from_addr=agent,
-        text=handled.reply.text,
-        html=handled.reply.html,
+        text=greeted.text,
+        html=greeted.html,
         attachments=handled.attachments,
         trace_id=handled.trace_id,
     )
@@ -300,7 +306,7 @@ async def _serve(settings: Settings) -> int:
     try:
         await asyncio.wait({inbox, worker_task, stopped}, return_when=asyncio.FIRST_COMPLETED)
         if inbox.done() and inbox.exception():
-            raise inbox.exception()  # an on_batch bug: exit so launchd restarts us cleanly
+            raise inbox.exception()  # an on_batch bug: exit so the service manager restarts us cleanly
     finally:
         stop.set()
         thread_stop.set()
@@ -327,7 +333,8 @@ async def _remind_reauth(settings: Settings, transport, user: str, stop: asyncio
             msg["Auto-Submitted"] = "auto-generated"
             msg.set_content(
                 f"The Gmail API token issued {settings.gmail_token_issued:%b %-d} expires on {expires:%b %-d}.\n"
-                "Run `uv run python scripts/gmail_auth.py` on the Mac and copy .env to the server."
+                "Run `uv run python scripts/gmail_auth.py` on a machine with a browser,\n"
+                "then copy .env to the server and restart the service."
             )
             try:
                 await asyncio.to_thread(transport.send, msg.as_bytes(policy=policy.SMTP), user, [settings.owner_email])
@@ -400,6 +407,13 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--body", default="")
     s.add_argument("--in-reply-to", help="Message-ID of an earlier simulated email, to test follow-ups")
 
+    sub.add_parser("index", help="add every cached document to the full-text search index (safe to rerun)")
+    q = sub.add_parser("search", help="full-text search of the documents already downloaded")
+    q.add_argument("query")
+    q.add_argument("--matter", help="only this matter, e.g. M12205")
+    q.add_argument("--limit", type=int, default=5)
+    sub.add_parser("mcp", help="serve the read-only MCP tools over stdio (for Claude Desktop and other MCP clients)")
+
     sub.add_parser("doctor", help="live canary against M12205; exits non-zero on failure")
     sub.add_parser("serve", help="run the email agent")
     sub.add_parser("skip-backlog", help="mark mail already in the inbox as handled (run once before the first serve)")
@@ -417,6 +431,16 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(_fetch(args, settings))
     if args.cmd == "simulate":
         return asyncio.run(_simulate(args, settings))
+    if args.cmd == "index":
+        print(run_index(settings))
+        return 0
+    if args.cmd == "search":
+        print(run_search(args.query, args.matter, args.limit, settings))
+        return 0
+    if args.cmd == "mcp":
+        from uarb_agent.mcp_server import run  # stdout is the protocol from here on: print nothing
+
+        return run()
     if args.cmd == "doctor":
         return asyncio.run(_doctor(settings))
     if args.cmd == "serve":

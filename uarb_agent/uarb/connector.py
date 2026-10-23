@@ -49,6 +49,7 @@ MATTER_BOX = "div.fm-textarea:has(div.placeholder:text-is('eg M01234'))"
 SCROLLER = ".v-grid-scroller-vertical"
 MAX_SCROLLS = 200
 SCROLL_PAUSE_MS = 400
+TRACE_TIMEOUT_S = 3.0  # per page capture when saving a failure trace
 
 # Visible text boxes above the tab bar: the header labels and their values.
 HEADER_JS = r"""() => {
@@ -436,17 +437,21 @@ class UarbSession:
     # --- tracing -----------------------------------------------------------------------------------
 
     async def save_trace(self, label: str, exc: BaseException | None = None) -> Path | None:
-        """Screenshot + HTML (+ error text) into trace_dir. Never raises: tracing must not mask the error."""
+        """Error text + screenshot + HTML into trace_dir, cheapest first. Never raises: tracing must not mask the
+        error. Each page capture gets a few seconds at most; on a hung site it hangs too, and must not eat the
+        request's time budget."""
         try:
             await asyncio.to_thread(self.trace_dir.mkdir, parents=True, exist_ok=True)
-            await self.page.screenshot(path=self.trace_dir / f"{label}.png", full_page=True, timeout=10_000)
-            html = await self.page.content()
-            await asyncio.to_thread((self.trace_dir / f"{label}.html").write_text, html)
             if exc is not None:
                 note = f"{type(exc).__name__}: {exc}\nmatter={self.matter} tab={self._tab}\n"
                 await asyncio.to_thread((self.trace_dir / f"{label}.txt").write_text, note)
+            await self.page.screenshot(
+                path=self.trace_dir / f"{label}.png", full_page=True, timeout=TRACE_TIMEOUT_S * 1000
+            )
+            html = await asyncio.wait_for(self.page.content(), TRACE_TIMEOUT_S)
+            await asyncio.to_thread((self.trace_dir / f"{label}.html").write_text, html)
             log.info("uarb.trace.saved", dir=str(self.trace_dir), label=label)
             return self.trace_dir
-        except Exception as e:  # page may be gone
+        except Exception as e:  # page may be gone or hung
             log.warning("uarb.trace.failed", error=repr(e))
             return None

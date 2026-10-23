@@ -114,6 +114,24 @@ def test_watch_out_is_not_a_command():
     assert res.command is None and res.requests[0].doc_type is DocType.OTHER_DOCUMENTS
 
 
+def test_search_naming_only_a_type_and_matter_is_a_document_request():
+    res = parse("Search the Other Documents for M12205", "", llm=None)
+    assert res.command is None
+    assert (res.requests[0].matter, res.requests[0].doc_type) == ("M12205", DocType.OTHER_DOCUMENTS)
+
+
+@pytest.mark.parametrize("subject", ['SEARCH "" in M12205', "search ???", "SEARCH -- **"])
+def test_search_without_words_asks_what_to_search_for(subject):
+    res = parse(subject, "", llm=None)
+    assert res.command.kind is CommandKind.SEARCH and res.clarify.reason == "no_query"
+
+
+def test_search_query_is_capped():
+    res = parse("SEARCH " + "rate base " * 5000, "", llm=None)
+    query = res.command.args[0]
+    assert len(query) <= 200 and query.startswith("rate base") and not query.endswith(" ")
+
+
 def test_bare_number_hint_in_clarify():
     res = parse("", "other docs for 12205", llm=None)
     assert res.clarify.reason == "no_matter" and "M12205" in res.clarify.question

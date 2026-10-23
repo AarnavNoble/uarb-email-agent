@@ -1,6 +1,7 @@
 """Exact-match accuracy of the intent parser on tests/fixtures/emails.jsonl.
 
-uv run python scripts/eval_parser.py            # rules only, plus rules+LLM when LLM_ENABLED and a key is set
+uv run python scripts/eval_parser.py            # rules only (never calls an API)
+uv run python scripts/eval_parser.py --llm      # also rules+LLM, if LLM_ENABLED and a key is set (billed API calls)
 uv run python scripts/eval_parser.py -v         # also print every miss
 """
 
@@ -68,7 +69,7 @@ def main(argv: list[str]) -> int:
     verbose = "-v" in argv
     cases = load()
     acc = report("rules", cases, None, verbose)
-    if get_settings().llm_active:
+    if "--llm" in argv and get_settings().llm_active:  # opt-in: each case is a billed API call
         report("rules+llm", cases, llm_fallback.guess, verbose)
     return 0 if acc >= 0.95 else 1
 

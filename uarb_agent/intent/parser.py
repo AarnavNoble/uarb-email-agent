@@ -235,6 +235,13 @@ _WATCH = re.compile(r"(?i)^(?:please\s+|can you\s+|could you\s+)?(un)?watch\b(?!
 _STOP_WATCH = re.compile(r"(?i)\b(?:stop|cancel|end)\s+(?:watching|monitoring)\b")
 _NOTIFY = re.compile(r"(?i)\b(?:notify|alert|email|tell)\s+me\s+(?:when|if|whenever)\b[^\n]*\bnew\b")
 
+_SEARCH = re.compile(
+    r"(?i)^(?:please\s+|can you\s+|could you\s+)*search\b(?:\s+(?:for|through|the documents for))?\s*:?\s*(.*)$"
+)
+# The matter a search is limited to, with the word joining it to the query: 'in M12205', 'M12205 for'.
+_SEARCH_MATTER = re.compile(r"(?i)(?:\b(?:in|within|from|on|of)\s+)?(?:matter\s+)?\bM[\s-]?(\d{5})\b(?:\s+for\b)?")
+_SEARCH_FILLER = re.compile(r"(?i)\b(?:the|all|any|every|me|please|documents?|docs?|files?|and|for)\b")
+SEARCH_MAX_CHARS = 200  # a search is a few words; a pasted page would only be echoed back in the reply
 _AUTO_SUBJECT = re.compile(
     r"(?i)^\s*(?:automatic reply|auto(?:matic)?[- ]?(?:reply|response)|out of (?:the )?office|ooo\b|auto:)"
 )
@@ -270,6 +277,31 @@ def _command(line: str) -> tuple[CommandKind, str | None, int | None] | None:
     if _NOTIFY.search(line):
         return CommandKind.WATCH, None, None
     return None
+
+
+def _search(line: str) -> ParseResult | None:
+    """'SEARCH semi-annual reports in M12205' -> a SEARCH command with [query, matter]. 'Search for the exhibits
+    in M12205' names only a document type, so it is left to the request rules."""
+    m = _SEARCH.match(line)
+    if not m:
+        return None
+    rest = m.group(1)
+    matters = [f"M{x.group(1)}" for x in _SEARCH_MATTER.finditer(rest)]
+    query = " ".join(_SEARCH_MATTER.sub(" ", rest).split()).strip(" .?!,;:")  # quotes stay: they mark a phrase
+    if len(query) > SEARCH_MAX_CHARS:
+        query = query[:SEARCH_MAX_CHARS].rsplit(" ", 1)[0]
+    if find_types(query) and not _SEARCH_FILLER.sub("", _strip_types(query)).strip(" ,.?!"):
+        return None
+    if not re.search(r"\w", query):  # nothing searchable: '', '""', '???'
+        q = 'What should I search for? For example: "SEARCH semi-annual reports in M12205".'
+        return ParseResult(command=Command(kind=CommandKind.SEARCH), clarify=Clarify(reason="no_query", question=q))
+    return ParseResult(command=Command(kind=CommandKind.SEARCH, args=[query, *matters[:1]]))
+
+
+def _strip_types(text: str) -> str:
+    for t in reversed(find_types(text)):
+        text = text[: t.start] + text[t.end :]
+    return text
 
 
 # --- thread state -----------------------------------------------------------------------------
@@ -319,9 +351,11 @@ def parse(
     if _AUTO_SUBJECT.match(subj):
         return ParseResult(clarify=Clarify(reason="auto_reply", question=""))
 
-    cmd = _command(_first_line(body)) or (None if is_reply else _command(subj))
-    if cmd:
-        return _resolve_command(cmd, subj, body, thread_state, max_docs)
+    for line in [_first_line(body)] if is_reply else [_first_line(body), subj]:
+        if cmd := _command(line):
+            return _resolve_command(cmd, subj, body, thread_state, max_docs)
+        if found := _search(line):
+            return found
 
     pending = _get(thread_state, "pending") or {}
     if is_reply:

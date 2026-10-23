@@ -81,6 +81,9 @@ class MatterReport(BaseModel):
     skipped: list[Skipped] = Field(default_factory=list)
     timings: dict[str, float] = Field(default_factory=dict)  # stage name -> seconds
     trace_id: str
+    # One cited line on what the Board decided, read from a cached Board Order or Decision; None when no such
+    # document is cached or nothing in it matched. Never inferred from anything else.
+    decision: str | None = None
 
     @property
     def downloaded(self) -> list[FileResult]:
@@ -105,11 +108,12 @@ class CommandKind(StrEnum):
     WATCH = "WATCH"
     UNWATCH = "UNWATCH"
     GET = "GET"
+    SEARCH = "SEARCH"
 
 
 class Command(BaseModel):
     kind: CommandKind
-    args: list[str] = Field(default_factory=list)  # e.g. matter for WATCH, doc_no for GET
+    args: list[str] = Field(default_factory=list)  # WATCH [matter], GET [doc_no, matter], SEARCH [query(, matter)]
 
 
 class ParseResult(BaseModel):

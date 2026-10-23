@@ -8,11 +8,13 @@ There are no {{ b.tab }} to download, so nothing is attached.
 
 {% macro text(b) %}
 {{ c.about(b.p) }}
+{{ c.decision_text(b.p) }}
 
 {{ body(b) }}
 {% endmacro %}
 
 {% macro html(b) %}
 <p>{{ c.about(b.p) }}</p>
+{{ c.decision_html(b.p) }}
 <p>{{ body(b) }}</p>
 {% endmacro %}

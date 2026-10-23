@@ -1,22 +1,27 @@
-Hi,
+Hi there,
 
-M12205 is about Halifax Regional Water Commission - Windsor Street Exchange Redevelopment Project - $69,275,000. It relates to Water within the Capital Expenditure Approvals category. The matter had an initial filing on April 7, 2025 and a final filing on October 23, 2025. I found 13 Exhibits, 6 Key Documents, 43 Other Documents, 0 Transcripts, and 0 Recordings. From documents 21-30 of the 43 Other Documents, I downloaded 8 and attached them as a ZIP.
+M12205 is about Halifax Regional Water Commission - Windsor Street Exchange Redevelopment Project - $69,275,000. It relates to Capital Expenditure Approvals within the Water category. The matter had an initial filing on April 7, 2025 and a final filing on October 23, 2025. The matter is closed; outcome: Directions given. I found 62 documents in total: 13 Exhibits, 6 Key Documents, 43 Other Documents, and no Transcripts or Recordings. From documents 21-33 of the 43 Other Documents, I downloaded 9 and am attaching them as a ZIP here. I couldn't include 2 others; the reasons are below.
 
 Attached:
 - 102334 Notice of Public Hearing (Mar 30, 2026, 166 KB)
 - 102317 Affidavit of Publication (Mar 25, 2026, 175 KB)
 - 102300 CA Letter - Consultant Retained (Mar 20, 2026, 184 KB)
-- 102283 HRWC Application Cover Letter (Mar 15, 2026, 192 KB)
-- 102266 Board Order (Mar 10, 2026, 201 KB)
-- 102249 HRWC (Board) Letter - Reply Submission (Mar 5, 2026, 210 KB)
-- 102232 CA (Board) Letter - Comments on Compliance Filing (Feb 28, 2026, 219 KB)
-- 102215 HRWC Compliance Filing (Feb 23, 2026, 228 KB)
+- 102266 Board Order (Mar 10, 2026, 192 KB)
+- 102249 HRWC (Board) Letter - Reply Submission (Mar 5, 2026, 201 KB)
+- 102232 CA (Board) Letter - Comments on Compliance Filing (Feb 28, 2026, 210 KB)
+- 102215 HRWC Compliance Filing (Feb 23, 2026, 219 KB)
+- 102198 Board Letter - Process Update (Feb 18, 2026, 228 KB)
+- 102130 Notice of Public Hearing (Jan 29, 2026, 166 KB)
+
+Skipped as confidential (the UARB site only offers a notice in their place):
+- 102283 HRWC Application Cover Letter
+- 102181 Intervenor Request - Halifax Chamber
 
 Not included:
-- 102198 Board Letter - Process Update: download failed
-- 102181 Intervenor Request - Halifax Chamber: too large to email (21.3 MB)
+- 102164 HRWC Response to Information Requests: download failed
+- 102147 Board Information Requests to HRWC: too large to email (21.3 MB)
 
-Reply MORE to get documents 31-40.
+Reply MORE to get documents 34-43.
 You can also reply with another type: Exhibits or Key Documents.
 Reply WATCH M12205 and I'll email you when something new is filed.
 Retrieved from uarb.novascotia.ca. Checksums for every file are in manifest.csv inside the ZIP.

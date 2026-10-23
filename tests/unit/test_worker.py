@@ -12,7 +12,7 @@ from uarb_agent.cache.store import Store
 from uarb_agent.config import Settings
 from uarb_agent.core import Fetcher
 from uarb_agent.jobs.ledger import Ledger, Status, ThreadState
-from uarb_agent.jobs.worker import Pipeline, SettlingMailbox, Worker, next_offset
+from uarb_agent.jobs.worker import EMAIL_TIMEOUT_S, Pipeline, SettlingMailbox, Worker, next_offset
 from uarb_agent.mail.inbox import parse_inbound
 from uarb_agent.mail.outbox import MAX_ATTEMPTS, Outbox
 from uarb_agent.models import DocType
@@ -374,3 +374,56 @@ async def test_more_after_get_continues_from_that_document(env):
     assert "Reply MORE to get documents 2-11" in got.reply.text
     more = await handle(pipeline, msg("MORE", subject="Re: Documents"), thread=got.thread)
     assert "documents 2-11 out of the 14 Other Documents" in more.reply.text
+
+
+def test_request_timeouts_follow_the_tab_budget(env):
+    _, _, _, pipeline = env
+    assert pipeline._timeout(DocType.OTHER_DOCUMENTS) == 120
+    assert pipeline._timeout(DocType.TRANSCRIPTS) == 160
+    assert pipeline._timeout(DocType.RECORDINGS) == 280
+    assert pipeline._timeout(DocType.RECORDINGS) < EMAIL_TIMEOUT_S
+    pipeline.request_timeout_s = 0.05  # an explicit value wins for every tab
+    assert pipeline._timeout(DocType.RECORDINGS) == 0.05
+
+
+def _index_pdf(pipeline, tmp_path, doc_no: str, text: str) -> None:
+    import pymupdf
+
+    path = tmp_path / f"{doc_no}.pdf"
+    doc = pymupdf.open()
+    doc.new_page().insert_text((72, 72), text)
+    doc.save(path)
+    doc.close()
+    pipeline.fetcher.index.index_document(
+        matter="M12205", tab=DocType.KEY_DOCUMENTS, doc_no=doc_no, path=path, title="Board Order", date="2026-07-08"
+    )
+
+
+async def test_search_command_cites_pages_and_offers_get(env, tmp_path):
+    _, site, _, pipeline = env
+    _index_pdf(pipeline, tmp_path, "102674", "Halifax Water is directed to continue to file semi-annual reports.")
+    h = await handle(pipeline, msg("", subject="SEARCH semi-annual reports in M12205"))
+    text = h.reply.text
+    assert 'the 1 document (1 page) from M12205 that I\'ve already downloaded for "semi-annual reports"' in text
+    assert "1. 102674 Board Order (M12205 Key Documents, Jul 8, 2026), page 1" in text
+    assert "**semi-annual reports**" in text and "<b>semi-annual reports</b>" in h.reply.html
+    assert "Reply GET 102674 from M12205 to get this document." in text
+    assert h.attachments == [] and site.opened == 0  # the index only; the site is never touched
+    assert h.thread.matter == "M12205"
+
+    # The suggested follow-up parses as a GET of that document.
+    follow = await handle(pipeline, msg("GET 102674 from M12205", subject="Re: SEARCH"), thread=h.thread)
+    assert follow.reply is not None
+
+
+async def test_search_with_nothing_downloaded_says_so(env):
+    _, site, _, pipeline = env
+    h = await handle(pipeline, msg("search for rate base"))
+    assert "I haven't downloaded any documents yet" in h.reply.text
+    assert site.opened == 0
+
+
+async def test_downloads_become_searchable(env):
+    _, _, _, pipeline = env
+    await handle(pipeline, msg(CANONICAL))
+    assert pipeline.fetcher.index.stats("M12205").documents == 10

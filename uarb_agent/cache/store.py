@@ -168,12 +168,14 @@ class Store:
         entry = _RowsEntry(stored_at=self.clock(), rows=rows)
         _atomic_write_bytes(self._listing_path(matter, tab.value), entry.model_dump_json().encode())
 
-    def get_rows(self, matter: str, tab: DocType) -> list[DocRow] | None:
+    def get_rows(self, matter: str, tab: DocType, *, stale_ok: bool = False) -> list[DocRow] | None:
+        """Rows of one tab while the listing is fresh. With stale_ok, any cached listing: good enough to name a
+        document already downloaded (documents never change), not to say what the tab holds now."""
         try:
             entry = _RowsEntry.model_validate_json(self._listing_path(matter, tab.value).read_bytes())
         except (FileNotFoundError, ValidationError):
             return None
-        return entry.rows if self._fresh(entry.stored_at) else None
+        return entry.rows if stale_ok or self._fresh(entry.stored_at) else None
 
     def invalidate(self, matter: str) -> None:
         """Drop the listings for a matter (documents stay; they are immutable)."""

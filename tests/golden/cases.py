@@ -21,7 +21,9 @@ from uarb_agent.models import (
 )
 from uarb_agent.pack.zipper import entry_name
 from uarb_agent.reply import render as r
+from uarb_agent.search.index import Hit, IndexStats
 
+CONFIDENTIAL = "confidential; the public site only offers a notice in its place"
 OD = DocType.OTHER_DOCUMENTS
 KD = DocType.KEY_DOCUMENTS
 
@@ -125,12 +127,16 @@ def more_page() -> MatterReport:
 
 
 def partial_with_failures() -> MatterReport:
-    """MORE batch where one download failed and one file was over the email budget."""
+    """MORE batch: one download failed and one file was over the email budget, so 9 of 10 arrived. The two
+    Confidential rows passed over on the way are listed but are not why the batch is short."""
     rows = other_rows()
-    window = rows[20:30]
-    files = files_for(window[:8])
-    files.append(FileResult(doc_no=window[8].doc_no, title=window[8].title, ok=False, error="Timeout 20000ms"))
-    skipped = [Skipped(doc_no=window[9].doc_no, title=window[9].title, reason="too large to email (21.3 MB)")]
+    window = rows[20:33]  # rows[23] and rows[29] are Confidential
+    public = [x for x in window if x.security == "Public"]
+    files = files_for(public[:8])
+    files.append(FileResult(doc_no=public[8].doc_no, title=public[8].title, ok=False, error="Timeout 20000ms"))
+    files += files_for(public[10:11])
+    skipped = [Skipped(doc_no=x.doc_no, title=x.title, reason=CONFIDENTIAL) for x in window if x not in public]
+    skipped.append(Skipped(doc_no=public[9].doc_no, title=public[9].title, reason="too large to email (21.3 MB)"))
     return report(requested=OD, offset=20, rows=rows, files=files, skipped=skipped)
 
 
@@ -186,6 +192,38 @@ def exhibits_all_linked() -> MatterReport:
     return report(requested=EX, offset=3, rows=rows, files=files, timings={"total": 61.2})
 
 
+def exhibits_restricted() -> MatterReport:
+    """All 13 Exhibits walked: 4 Confidential and 2 Board Only rows skipped, so only 7 came back."""
+    marks = {
+        1: "Confidential",
+        4: "Confidential",
+        6: "Board Only",
+        8: "Confidential",
+        9: "Board Only",
+        12: "Confidential",
+    }
+    rows = [x.model_copy(update={"security": marks.get(i, "Public")}) for i, x in enumerate(exhibit_rows())]
+    public = [x for x in rows if x.security == "Public"]
+    skipped = [Skipped(doc_no=x.doc_no, title=x.title, reason=CONFIDENTIAL) for x in rows if x not in public]
+    return report(requested=EX, rows=rows, files=files_for(public), skipped=skipped, timings={"total": 41.7})
+
+
+def exhibits_budget_stop() -> MatterReport:
+    """The download time budget ran out after two large Exhibits; the rest are left for MORE."""
+    rows = exhibit_rows()
+    files = files_for(rows[:2], [2_100_000, 3_400_000])
+    return report(requested=EX, rows=rows, files=files, timings={"total": 83.9})
+
+
+def key_docs_all_confidential() -> MatterReport:
+    rows = [
+        DocRow(doc_no=str(102400 + i), title=f"Confidential filing {chr(65 + i)}", security="Confidential", tab=KD)
+        for i in range(2)
+    ]
+    skipped = [Skipped(doc_no=x.doc_no, title=x.title, reason=CONFIDENTIAL) for x in rows]
+    return report(counts=COUNTS | {KD: 2}, requested=KD, rows=rows, skipped=skipped)
+
+
 def all_failed() -> MatterReport:
     rows = other_rows()
     files = [FileResult(doc_no=x.doc_no, title=x.title, ok=False, error="boom") for x in rows[:2]]
@@ -197,7 +235,24 @@ def summary_only() -> MatterReport:
 
 
 def no_final_date() -> MatterReport:
-    return report(requested=None, metadata=META.model_copy(update={"date_final": None}))
+    """An open matter: no final filing yet."""
+    meta = META.model_copy(update={"date_final": None, "status": "Open", "outcome": None})
+    return report(requested=None, metadata=meta)
+
+
+def closed_without_final_date() -> MatterReport:
+    """An old closed matter with a blank category, no final date and only one non-empty tab (like M00100)."""
+    meta = MatterMetadata(
+        matter_no="M00100",
+        title="Halifax Regional Municipality - Assessment Appeal",
+        type="Assessment",
+        category="",
+        status="Closed",
+        outcome="Discontinued",
+        date_received=dt.date(2006, 2, 24),
+    )
+    counts = dict.fromkeys(COUNTS, 0) | {OD: 4}
+    return MatterReport(metadata=meta, counts=counts, trace_id="20261023T141400-0a0b0c")
 
 
 def empty_tab() -> MatterReport:
@@ -206,6 +261,51 @@ def empty_tab() -> MatterReport:
 
 def past_end() -> MatterReport:
     return report(requested=OD, offset=43, rows=other_rows())
+
+
+# The line extract.outcome.render_line produces for M12205's Board Order 102674 (checked against the PDF).
+DECISION = (
+    "Board decision: approved $59,143,000 of $64,769,000 requested (Board Order 102674, July 8, 2026, pp. 1-2); "
+    "conditions: semi-annual (every six months) reports."
+)
+
+
+def summary_with_decision() -> MatterReport:
+    return report(requested=None, decision=DECISION)
+
+
+def key_docs_with_decision() -> MatterReport:
+    rows = [
+        DocRow(doc_no="102674", title="Board Order", date=dt.date(2026, 7, 8), tab=KD),
+        DocRow(doc_no="99761", title="Board Decision", date=dt.date(2025, 10, 23), tab=KD),
+    ]
+    return report(
+        counts=COUNTS | {KD: 2},
+        requested=KD,
+        rows=rows,
+        files=files_for(rows),
+        decision=DECISION,
+        timings={"total": 7.2},
+    )
+
+
+SNIPPET = "...the Board directs HRWC to continue to file **semi-annual** (every six months) **reports** on it..."
+HITS = [
+    Hit("M12205", "Key Documents", "102674", "Board Order", "2026-07-08", 2, SNIPPET, True),
+    Hit(
+        "M12205",
+        "Key Documents",
+        "99761",
+        "Board Decision",
+        "2025-10-23",
+        33,
+        "...HRWC shall file **semi-annual** progress **reports** with the Board until the Project is complete...",
+        True,
+    ),
+]
+CLOSEST = [
+    Hit("M10431", "Key Documents", "88655", "Board Decision", None, 141, "...annual **reports** <of> NSPI", False)
+]
 
 
 def reqs(*pairs) -> list[Request]:
@@ -237,12 +337,15 @@ def m11111() -> MatterReport:
 
 # name -> zero-arg callable producing a Reply. Snapshots live in tests/golden/snapshots/<name>.{txt,html}.
 CASES = {
-    "docs_happy": lambda: r.render_report(happy()),
+    "docs_happy": lambda: r.greet(r.render_report(happy()), "Jane Doe"),
     "docs_all_key_documents": lambda: r.render_report(key_docs_all()),
     "docs_single": lambda: r.render_report(single_doc()),
     "docs_more": lambda: r.render_report(more_page()),
     "docs_partial_failures": lambda: r.render_report(partial_with_failures()),
     "docs_all_failed": lambda: r.render_report(all_failed()),
+    "docs_restricted": lambda: r.greet(r.render_report(exhibits_restricted()), "Doe, Jane"),
+    "docs_budget_stop": lambda: r.render_report(exhibits_budget_stop()),
+    "docs_all_confidential": lambda: r.render_report(key_docs_all_confidential()),
     "docs_some_linked": lambda: r.render_report(exhibits_some_linked()),
     "docs_all_linked": lambda: r.render_report(exhibits_all_linked()),
     "docs_assumed_matter": lambda: r.render_outcomes(
@@ -255,6 +358,7 @@ CASES = {
     ),
     "summary_only": lambda: r.render_report(summary_only()),
     "summary_no_final_date": lambda: r.render_report(no_final_date()),
+    "summary_closed_no_final_date": lambda: r.render_report(closed_without_final_date()),
     "empty_tab": lambda: r.render_report(empty_tab()),
     "past_end": lambda: r.render_report(past_end()),
     "not_found": lambda: r.render_outcomes([r.Outcome(Request(matter="M99999"), error=MatterNotFound("M99999"))]),
@@ -280,7 +384,9 @@ CASES = {
         ],
         not_processed=reqs(("M12345", DocType.TRANSCRIPTS)),
     ),
-    "clarify_no_matter": lambda: r.render_clarify(Clarify(reason="no_matter", question="Which matter?")),
+    "clarify_no_matter": lambda: r.greet(
+        r.render_clarify(Clarify(reason="no_matter", question="Which matter?")), "j.doe2@example.com"
+    ),
     "clarify_invalid": lambda: r.render_clarify(
         Clarify(reason="invalid_matter_like", question="M1234 is not a matter number")
     ),
@@ -298,4 +404,12 @@ CASES = {
     "ack": lambda: r.render_ack(reqs(("M12205", OD), ("M11111", None))),
     "rate_limited": lambda: r.render_rate_limited(dt.datetime(2026, 10, 23, 14, 30, tzinfo=dt.UTC), per_hour=10),
     "help": lambda: r.render_help(),
+    "summary_with_decision": lambda: r.render_report(summary_with_decision()),
+    "docs_key_with_decision": lambda: r.render_report(key_docs_with_decision()),
+    "search_in_matter": lambda: r.greet(
+        r.render_search("semi-annual reports", "M12205", HITS, IndexStats(12, 412, 3, 1, 0)), "Jane Doe"
+    ),
+    "search_closest": lambda: r.render_search("NSPI annual reports", None, CLOSEST, IndexStats(32, 1300, 7, 7, 1)),
+    "search_no_hits": lambda: r.render_search("bitcoin", None, [], IndexStats(32, 1300, 0, 7, 1)),
+    "search_matter_not_downloaded": lambda: r.render_search("rate base", "M10431", [], IndexStats(0, 0, 0, 0, 0)),
 }
