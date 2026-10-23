@@ -32,6 +32,7 @@ from uarb_agent.models import (
 SITE = "uarb.novascotia.ca"
 MATTER_EXAMPLE = "M01234"
 BATCH = 10  # documents per reply; matches Settings.max_docs
+LINK_DAYS = 7  # how long download links last; matches Settings.link_ttl_days
 
 _SINGULAR = {
     DocType.EXHIBITS: "Exhibit",
@@ -168,7 +169,7 @@ def _block(kind: str, allowed: Iterable[str] = (), **fields: Any) -> Block:
     return {"kind": kind, "allowed": set(allowed), "heading": None, "notes": [], **fields}
 
 
-def _report_block(report: MatterReport, batch: int) -> Block:
+def _report_block(report: MatterReport, batch: int, link_days: int = LINK_DAYS) -> Block:
     base = {"p": _about(report), "matter": report.metadata.matter_no}
     allowed = allowed_numbers(report)
     t = report.requested
@@ -202,13 +203,20 @@ def _report_block(report: MatterReport, batch: int) -> Block:
 
     dates = {r.doc_no: r.date for r in report.rows}
     tried = len(report.files) + len(report.skipped)
-    files, extra = [], {str(got), str(start), str(end), str(tried)}
+    files, links, extra = [], [], {str(got), str(start), str(end), str(tried)}
     for f in report.downloaded:
         meta = [short_date(d)] if (d := dates.get(f.doc_no)) else []
         if f.size:
             meta.append(human_size(f.size))
             extra |= numbers_in(meta[-1])
-        files.append({"doc_no": f.doc_no, "title": f.title, "meta": ", ".join(meta)})
+        item = {"doc_no": f.doc_no, "title": f.title, "meta": ", ".join(meta)}
+        if f.url:
+            links.append(item | {"url": f.url})
+            extra |= numbers_in(f.url)
+        else:
+            files.append(item)
+    if links:
+        extra |= {str(len(files)), str(len(links)), str(link_days)}
     problems = [{"doc_no": f.doc_no, "title": f.title, "reason": "download failed"} for f in report.files if not f.ok]
     problems += [{"doc_no": s.doc_no, "title": s.title, "reason": s.reason} for s in report.skipped]
 
@@ -233,6 +241,8 @@ def _report_block(report: MatterReport, batch: int) -> Block:
         label=label(total, t),
         window=window,
         files=files,
+        links=links,
+        link_days=link_days,
         problems=problems,
         more=more,
         others=[str(o) for o in DOC_TYPES if o != t and report.counts.get(o, 0) > 0],
@@ -329,12 +339,13 @@ def render_outcomes(
     notes: Sequence[str] = (),
     not_processed: Sequence[Request] = (),
     batch: int = BATCH,
+    link_days: int = LINK_DAYS,
 ) -> Reply:
     """The main reply: one section per request (a single request reads as a plain letter)."""
     blocks = []
     for o in outcomes:
         if o.report is not None:
-            b = _report_block(o.report, batch)
+            b = _report_block(o.report, batch, link_days)
         elif o.error is not None:
             b = _error_block(o.request, o.error)
         else:
@@ -345,10 +356,12 @@ def render_outcomes(
     return _render(blocks, notes=notes, not_processed=not_processed)
 
 
-def render_report(report: MatterReport, *, notes: Sequence[str] = (), batch: int = BATCH) -> Reply:
+def render_report(
+    report: MatterReport, *, notes: Sequence[str] = (), batch: int = BATCH, link_days: int = LINK_DAYS
+) -> Reply:
     """Shortcut for the common single-request reply."""
     request = Request(matter=report.metadata.matter_no, doc_type=report.requested, offset=report.offset)
-    return render_outcomes([Outcome(request, report=report)], notes=notes, batch=batch)
+    return render_outcomes([Outcome(request, report=report)], notes=notes, batch=batch, link_days=link_days)
 
 
 def render_clarify(clarify: Clarify, report: MatterReport | None = None, *, batch: int = BATCH) -> Reply:

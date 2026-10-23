@@ -172,7 +172,9 @@ class Pipeline:
         if not any(_has_more(o.report) for o in outcomes if o.report):
             notes = [n for n in notes if n != batch_note(self.settings.max_docs)]
         try:
-            reply = render_outcomes(outcomes, notes=notes, batch=self.settings.max_docs)
+            reply = render_outcomes(
+                outcomes, notes=notes, batch=self.settings.max_docs, link_days=self.settings.link_ttl_days
+            )
         except ReplyCheckFailed as e:
             # Never send a number we cannot source. Fall back to an honest failure without attachments.
             log.error("pipeline.reply_check_failed", trace_id=trace_id, numbers=sorted(e.numbers))
@@ -275,7 +277,7 @@ class Pipeline:
             req = Request(matter=matter, doc_type=report.requested, limit=1, offset=report.offset)
             outcome = Outcome(req, report=report)
             attachments = self._pack([outcome], trace_id)
-            reply = render_outcomes([outcome])
+            reply = render_outcomes([outcome], link_days=self.settings.link_ttl_days)
             self._remember(state, [outcome])  # the reply offers MORE from after this document, so honour it
             return Handled(reply, trace_id, attachments=attachments, thread=state)
         except Exception as e:

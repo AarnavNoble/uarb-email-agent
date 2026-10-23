@@ -1,3 +1,4 @@
+import urllib.parse
 import zipfile
 
 import pytest
@@ -100,6 +101,39 @@ async def test_pack_moves_left_out_files_to_skipped(tmp_path):
         assert "manifest.csv" in zf.namelist()
     assert len(report.downloaded) == len(packed.included) == 2
     assert report.skipped and "budget" in report.skipped[-1].reason
+
+
+async def test_pack_links_oversized_files_when_public_url_set(tmp_path):
+    site = FakeSite(file_size=60_000)  # each fake file ~360 KB
+    c = fetcher_for(tmp_path, site, public_base_url="https://agent.example")
+    report = await c.fetch("M12205", OTHER, limit=3)
+    packed = c.pack(report, tmp_path / "out", budget_bytes=900_000)
+    assert packed and packed.path and len(packed.included) == 2
+    assert len(report.downloaded) == 3 and not report.skipped
+    [linked] = [f for f in report.downloaded if f.url]
+    assert linked.url.startswith("https://agent.example/d/")
+    token, name = linked.url.split("/")[-2:]
+    assert (c.settings.links_dir / token).is_dir()
+    assert [p.name for p in (c.settings.links_dir / token).iterdir()] == [urllib.parse.unquote(name)]
+
+
+async def test_pack_all_oversized_linked_without_zip(tmp_path):
+    site = FakeSite(file_size=60_000)
+    c = fetcher_for(tmp_path, site, public_base_url="https://agent.example")
+    report = await c.fetch("M12205", OTHER, limit=2)
+    packed = c.pack(report, tmp_path / "out", budget_bytes=300_000)
+    assert packed and packed.path is None
+    assert len(report.downloaded) == 2 and all(f.url for f in report.downloaded) and not report.skipped
+
+
+async def test_pack_skips_oversized_without_public_url(tmp_path):
+    site = FakeSite(file_size=60_000)
+    c = fetcher_for(tmp_path, site)
+    report = await c.fetch("M12205", OTHER, limit=2)
+    packed = c.pack(report, tmp_path / "out", budget_bytes=300_000)
+    assert packed and packed.path is None
+    assert report.downloaded == [] and all("too large" in s.reason for s in report.skipped)
+    assert not c.settings.links_dir.exists()
 
 
 async def test_find_doc(tmp_path):

@@ -15,6 +15,7 @@ import datetime as dt
 import shutil
 import time
 from contextlib import AsyncExitStack
+from functools import partial
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -34,6 +35,7 @@ from uarb_agent.models import (
     Skipped,
     normalize_matter,
 )
+from uarb_agent.pack.links import publish_link
 from uarb_agent.pack.zipper import MB, PackResult, build_zip
 from uarb_agent.uarb.connector import new_trace_id
 
@@ -215,20 +217,33 @@ class Fetcher:
         return None
 
     def pack(self, report: MatterReport, out_dir: Path, *, budget_bytes: int | None = None) -> PackResult | None:
-        """ZIP the report's downloads. Whatever the zipper leaves out moves from `files` to `skipped`, so the
-        reply never claims a file is attached when it is not."""
+        """ZIP the report's downloads. With a public_base_url, files too large for the ZIP are published as
+        download links and get their `url` set. Whatever the zipper leaves out moves from `files` to `skipped`,
+        so the reply never claims a file is delivered when it is not."""
         if report.requested is None or not report.downloaded:
             return None
         budget = self.settings.zip_budget_mb * MB if budget_bytes is None else budget_bytes
+        publish = None
+        if base_url := self.settings.public_base_url:
+            publish = partial(publish_link, links_dir=self.settings.links_dir, base_url=base_url)
         packed = build_zip(
-            out_dir, report.metadata.matter_no, report.requested, report.files, report.rows, budget_bytes=budget
+            out_dir,
+            report.metadata.matter_no,
+            report.requested,
+            report.files,
+            report.rows,
+            budget_bytes=budget,
+            publish=publish,
         )
         kept = {p.sha256 for p in packed.included}
+        urls = {p.sha256: p.url for p in packed.linked}
         left_out = {s.doc_no: s for s in packed.skipped}
         files, extra = [], []
         for f in report.files:
             if not f.ok or f.sha256 in kept:
                 files.append(f)
+            elif f.sha256 in urls:
+                files.append(f.model_copy(update={"url": urls[f.sha256]}))
             elif s := left_out.pop(f.doc_no, None):
                 extra.append(s)
         report.files = files

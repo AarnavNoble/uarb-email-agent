@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from urllib.parse import quote
 
 from uarb_agent.models import (
     Clarify,
@@ -18,6 +19,7 @@ from uarb_agent.models import (
     SiteUnavailable,
     Skipped,
 )
+from uarb_agent.pack.zipper import entry_name
 from uarb_agent.reply import render as r
 
 OD = DocType.OTHER_DOCUMENTS
@@ -132,6 +134,58 @@ def partial_with_failures() -> MatterReport:
     return report(requested=OD, offset=20, rows=rows, files=files, skipped=skipped)
 
 
+EX = DocType.EXHIBITS
+LINK_BASE = "https://201-79-51-198.sslip.io/d"
+_EXHIBIT_TITLES = [
+    "HRWC Reply Evidence",
+    "Consumer Advocate Evidence - Expert Report",
+    "HRWC Responses to Board IRs",
+    "HRWC Application (Part 2) - Appendices",
+    "HRWC Application (Part 1)",
+    "Board Information Requests",
+    "Consumer Advocate Information Requests",
+]
+
+
+def exhibit_rows() -> list[DocRow]:
+    """The 13 Exhibits, newest first, numbered E-13 down to E-1."""
+    return [
+        DocRow(
+            doc_no=f"E-{13 - i}",
+            title=_EXHIBIT_TITLES[i % len(_EXHIBIT_TITLES)],
+            date=dt.date(2025, 9, 30) - dt.timedelta(days=9 * i),
+            ext=".pdf",
+            security="Public",
+            tab=EX,
+        )
+        for i in range(13)
+    ]
+
+
+def _linked(rows: list[DocRow], sizes: list[int]) -> list[FileResult]:
+    """Files published as download links, as Fetcher.pack leaves them (fixed tokens instead of random ones)."""
+    out = []
+    for i, (f, row) in enumerate(zip(files_for(rows, sizes), rows, strict=True)):
+        name = quote(entry_name(row.doc_no, row.title, ".pdf"))
+        out.append(f.model_copy(update={"url": f"{LINK_BASE}/tok{chr(97 + i)}Kq7ZpW2xVn4Rb/{name}"}))
+    return out
+
+
+def exhibits_some_linked() -> MatterReport:
+    """Seven Exhibits: three fit in the ZIP, four were over the email budget and went out as links."""
+    rows = exhibit_rows()
+    big = [23_700_000, 31_400_000, 46_200_000, 28_900_000]
+    files = files_for(rows[:3], [2_100_000, 3_400_000, 880_000]) + _linked(rows[3:7], big)
+    return report(requested=EX, rows=rows, files=files, timings={"total": 74.6})
+
+
+def exhibits_all_linked() -> MatterReport:
+    """Every Exhibit fetched was too large to email, so nothing is attached."""
+    rows = exhibit_rows()
+    files = _linked(rows[3:7], [23_700_000, 31_400_000, 46_200_000, 28_900_000])
+    return report(requested=EX, offset=3, rows=rows, files=files, timings={"total": 61.2})
+
+
 def all_failed() -> MatterReport:
     rows = other_rows()
     files = [FileResult(doc_no=x.doc_no, title=x.title, ok=False, error="boom") for x in rows[:2]]
@@ -189,6 +243,8 @@ CASES = {
     "docs_more": lambda: r.render_report(more_page()),
     "docs_partial_failures": lambda: r.render_report(partial_with_failures()),
     "docs_all_failed": lambda: r.render_report(all_failed()),
+    "docs_some_linked": lambda: r.render_report(exhibits_some_linked()),
+    "docs_all_linked": lambda: r.render_report(exhibits_all_linked()),
     "docs_assumed_matter": lambda: r.render_outcomes(
         [
             r.Outcome(

@@ -1,6 +1,6 @@
 """Live end-to-end run: email the agent a set of requests from its own address and collect the replies.
 
-uv run python scripts/send_tests.py send     # one new thread per case, tagged with CANARY_TOKEN
+uv run python scripts/send_tests.py send [case ...]  # one new thread per case, tagged with CANARY_TOKEN
 uv run python scripts/send_tests.py collect  # print each case's reply (run a few minutes later)
 
 The canary header is what lets the agent answer mail from itself; without it the loop guard drops it.
@@ -26,6 +26,7 @@ RUN_FILE = Path("data/test_run.json")
 CASES = [
     ("canonical", "Documents request", "Hi Agent, can you give me a list of Key Documents files from M12205?"),
     ("typo", "docs", "exibits for m-12205 please"),
+    ("exhibits", "Exhibits", "Please send me the Exhibits for M12205."),
     ("zero-docs", "Transcripts", "Can I get the transcripts for M12205?"),
     ("not-found", "Request", "Please send the other documents for M99999."),
     ("no-matter", "Exhibits", "Can you send me the exhibits?"),
@@ -47,13 +48,15 @@ CASES = [
 ]
 
 
-def send() -> int:
+def send(only: list[str]) -> int:
     s = get_settings()
     transport = GmailApiTransport(
         s.gmail_client_id, s.gmail_client_secret.get_secret_value(), s.gmail_refresh_token.get_secret_value()
     )
     sent = {}
     for name, subject, body in CASES:
+        if only and name not in only:
+            continue
         msg = EmailMessage()
         msg["From"] = msg["To"] = s.agent_email
         msg["Subject"] = f"[test {name}] {subject}"
@@ -69,7 +72,7 @@ def send() -> int:
     return 0
 
 
-def collect() -> int:
+def collect(_: list[str]) -> int:
     s = get_settings()
     sent = json.loads(RUN_FILE.read_text())
     with MailBox(s.imap_host).login(s.agent_email, s.agent_app_password.get_secret_value()) as mb:
@@ -85,4 +88,4 @@ def collect() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit({"send": send, "collect": collect}[sys.argv[1]]())
+    sys.exit({"send": send, "collect": collect}[sys.argv[1]](sys.argv[2:]))

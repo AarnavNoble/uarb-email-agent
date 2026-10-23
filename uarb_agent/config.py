@@ -45,6 +45,10 @@ class Settings(BaseModel):
     max_docs: int = 10
     # Raw bytes per reply. Base64 adds ~37%, so 16 MiB encodes to ~24 MB, under Gmail's 25 MB message limit.
     zip_budget_mb: int = 16
+    # Files too large to email are published as download links under <data_dir>/links, which the web server
+    # serves at <public_base_url>/d/. Unset means they are left out, as before.
+    public_base_url: str | None = None
+    link_ttl_days: int = 7
 
     # ops: healthchecks.io ping URL (optional; pings are skipped when unset)
     healthcheck_url: str | None = None
@@ -56,6 +60,10 @@ class Settings(BaseModel):
     @property
     def cache_dir(self) -> Path:
         return self.data_dir / "cache"
+
+    @property
+    def links_dir(self) -> Path:
+        return self.data_dir / "links"
 
     @property
     def gmail_api_ready(self) -> bool:

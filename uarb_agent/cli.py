@@ -39,6 +39,7 @@ from uarb_agent.jobs.worker import Pipeline, Worker
 from uarb_agent.mail.inbox import parse_inbound
 from uarb_agent.mail.threading import build_reply
 from uarb_agent.models import DOC_TYPES, AgentError, DocType
+from uarb_agent.pack.links import sweep_links
 from uarb_agent.reply.render import render_report
 
 CANARY_MATTER = "M12205"
@@ -86,7 +87,7 @@ async def _fetch(args: argparse.Namespace, settings: Settings) -> int:
         report = await fetcher.fetch(args.matter, _doc_type(args.doc_type), args.limit, args.offset)
         out = Path(args.out) if args.out else settings.data_dir / "out" / report.trace_id
         packed = fetcher.pack(report, out)
-        reply = render_report(report, batch=settings.max_docs)
+        reply = render_report(report, batch=settings.max_docs, link_days=settings.link_ttl_days)
     except AgentError as e:
         print(f"error: {type(e).__name__}: {e} (trace {e.trace_id})", file=sys.stderr)
         return 1
@@ -290,6 +291,7 @@ async def _serve(settings: Settings) -> int:
     worker_task = asyncio.create_task(worker.run(stop))
     watch_task = asyncio.create_task(run_watch(ledger, fetcher, send_alert, stop))
     reauth_task = asyncio.create_task(_remind_reauth(settings, transport, user, stop))
+    sweep_task = asyncio.create_task(_sweep_links(settings, stop))
     inbox = asyncio.create_task(
         asyncio.to_thread(run_inbox, connect, worker.on_batch, thread_stop, on_healthy=health.ping)
     )
@@ -302,7 +304,7 @@ async def _serve(settings: Settings) -> int:
     finally:
         stop.set()
         thread_stop.set()
-        await asyncio.gather(worker_task, watch_task, reauth_task, return_exceptions=True)
+        await asyncio.gather(worker_task, watch_task, reauth_task, sweep_task, return_exceptions=True)
         await fetcher.close()
     return 0
 
@@ -334,6 +336,23 @@ async def _remind_reauth(settings: Settings, transport, user: str, stop: asyncio
                 structlog.get_logger().warning("serve.reauth_reminder_failed", error=repr(e))
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(stop.wait(), 6 * 3600)
+
+
+LINK_SWEEP_S = 3600
+
+
+async def _sweep_links(settings: Settings, stop: asyncio.Event) -> None:
+    """Delete expired download links at startup and then hourly, while links are being published."""
+    if not settings.public_base_url:
+        return
+    while not stop.is_set():
+        try:
+            now = dt.datetime.now(dt.UTC)
+            await asyncio.to_thread(sweep_links, settings.links_dir, settings.link_ttl_days, now)
+        except Exception as e:
+            structlog.get_logger().warning("serve.link_sweep_failed", error=repr(e))
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(stop.wait(), LINK_SWEEP_S)
 
 
 def _skip_backlog(settings: Settings) -> int:

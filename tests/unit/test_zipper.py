@@ -189,3 +189,62 @@ def test_summary_in_readme_and_rebuild_overwrites(tmp_path):
     _, _, readme, _ = _read(res)
     assert "M12205 is about rates." in readme
     assert len(list((tmp_path / "out").iterdir())) == 1
+
+
+def _fake_publish(published: list):
+    def publish(path, filename):
+        published.append((path, filename))
+        return f"https://example.test/d/tok/{filename}"
+
+    return publish
+
+
+def test_oversized_files_published_as_links(tmp_path):
+    files = [
+        _sparse(tmp_path, "1", 20 * MB),
+        _sparse(tmp_path, "2", 1 * MB),
+        _sparse(tmp_path, "3", 17 * MB),
+    ]  # 3: over budget
+    published: list = []
+    res = build_zip(tmp_path / "out", "M12205", OTHER, files, retrieved_at=WHEN, publish=_fake_publish(published))
+
+    assert [p.doc_no for p in res.included] == ["2"]
+    assert [(p.doc_no, p.url) for p in res.linked] == [
+        ("1", "https://example.test/d/tok/1 - Doc 1.pdf"),
+        ("3", "https://example.test/d/tok/3 - Doc 3.pdf"),
+    ]
+    assert res.skipped == []
+    assert [name for _, name in published] == ["1 - Doc 1.pdf", "3 - Doc 3.pdf"]
+    names, manifest, readme, _ = _read(res)
+    assert "1 - Doc 1.pdf" not in names
+    assert list(manifest[0])[-1] == "link"
+    assert [(m["doc_no"], m["link"]) for m in manifest] == [
+        ("2", ""),
+        ("1", "https://example.test/d/tok/1 - Doc 1.pdf"),
+        ("3", "https://example.test/d/tok/3 - Doc 3.pdf"),
+    ]
+    assert manifest[1]["size"] == str(20 * MB) and len(manifest[1]["sha256"]) == 64
+    assert "download links" in readme and "https://example.test/d/tok/3 - Doc 3.pdf" in readme
+
+
+def test_all_oversized_linked_means_no_zip(tmp_path):
+    res = build_zip(
+        tmp_path / "out",
+        "M12205",
+        OTHER,
+        [_sparse(tmp_path, "1", 20 * MB)],
+        retrieved_at=WHEN,
+        publish=_fake_publish([]),
+    )
+    assert res.path is None and res.included == [] and res.skipped == []
+    assert [p.doc_no for p in res.linked] == ["1"]
+
+
+def test_publish_failure_falls_back_to_skip(tmp_path):
+    def broken(path, filename):
+        raise OSError("disk full")
+
+    res = build_zip(
+        tmp_path / "out", "M12205", OTHER, [_sparse(tmp_path, "1", 20 * MB)], retrieved_at=WHEN, publish=broken
+    )
+    assert res.linked == [] and "too large" in res.skipped[0].reason

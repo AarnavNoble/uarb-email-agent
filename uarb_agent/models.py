@@ -62,6 +62,7 @@ class FileResult(BaseModel):
     sha256: str | None = None
     ok: bool = False
     error: str | None = None
+    url: str | None = None  # delivered as an expiring download link instead of inside the ZIP
 
 
 class Skipped(BaseModel):
