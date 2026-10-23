@@ -1,0 +1,13 @@
+Hi,
+
+Here's what I can do with the Nova Scotia UARB matter database:
+
+- Documents: name a matter and a type, for example "Other Documents from M01234". I'll reply with a summary of the matter and up to 10 documents as a ZIP.
+- Summary: send just the matter number to get its details and document counts.
+- MORE: reply in the same thread for the next 10.
+- GET <document number>: reply in the same thread for one specific document.
+- WATCH M01234: I'll email you when something new is filed. UNWATCH M01234 stops it.
+
+The types are Exhibits, Key Documents, Other Documents, Transcripts, or Recordings.
+
+UARB Email Agent (automated reply)

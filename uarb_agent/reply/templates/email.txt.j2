@@ -1,0 +1,30 @@
+Hi,
+
+{% for n in notes %}
+{{ n }}
+{% endfor %}
+
+{% for b in blocks %}
+{% import b.kind ~ ".j2" as k %}
+{% if multi %}
+{{ b.heading }}
+{{ "=" * (b.heading | length) }}
+{% endif %}
+{% for n in b.notes %}
+{{ n }}
+{% endfor %}
+{% if b.notes %}
+
+{% endif %}
+{{ k.text(b) }}
+
+{% endfor %}
+{% if not_processed %}
+I handle up to {{ cap }} requests per email, so I didn't get to {{ not_processed | oxford }}. Please send {{ "that one" if not_processed | length == 1 else "those" }} in a new email.
+
+{% endif %}
+{% if footer %}
+Reply HELP to see everything I can do.
+
+{% endif %}
+UARB Email Agent (automated reply)

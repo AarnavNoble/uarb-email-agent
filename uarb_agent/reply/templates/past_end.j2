@@ -1,0 +1,11 @@
+{% import "_common.j2" as c %}
+{% macro text(b) %}
+That was {{ b.all_of }} on {{ b.matter }}, so there are no more to send.
+
+{{ c.about(b.p) }}
+{% endmacro %}
+
+{% macro html(b) %}
+<p>That was {{ b.all_of }} on {{ b.matter }}, so there are no more to send.</p>
+<p>{{ c.about(b.p) }}</p>
+{% endmacro %}

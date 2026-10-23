@@ -1,0 +1,13 @@
+{# The matter paragraph shared by most replies: what it is, its dates, and all five counts in site order. #}
+{% macro about(p) -%}
+{{ p.matter }} is about {{ p.title }}.
+{%- if p.type and p.category %} It relates to {{ p.type }} within the {{ p.category }} category.{% endif %}
+{%- if p.received and p.final %} The matter had an initial filing on {{ p.received }} and a final filing on {{ p.final }}.
+{%- elif p.received %} The matter had an initial filing on {{ p.received }} and has no final filing yet.
+{%- elif p.final %} The matter had a final filing on {{ p.final }}.
+{%- endif %} I found {{ p.counts }}.
+{%- endmacro %}
+
+{% macro watch_hint(matter) -%}
+Reply WATCH {{ matter }} and I'll email you when something new is filed.
+{%- endmacro %}

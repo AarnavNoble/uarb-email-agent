@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The email agent as a per-user LaunchAgent. launchd starts it at login and restarts it if it exits;
+  caffeinate keeps the Mac awake while it runs. Paths assume the repo at ~/uarb-email-agent and uv in
+  ~/.local/bin; edit them if yours differ. Secrets stay in the repo's .env, never in this file.
+
+  Install:   mkdir -p ~/Library/Logs/uarb-email-agent
+             cp deploy/com.uarb-email-agent.agent.plist ~/Library/LaunchAgents/
+             launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.uarb-email-agent.agent.plist
+  Restart:   launchctl kickstart -k gui/$(id -u)/com.uarb-email-agent.agent
+  Remove:    launchctl bootout gui/$(id -u)/com.uarb-email-agent.agent
+  Logs:      tail -f ~/Library/Logs/uarb-email-agent/agent.err.log
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.uarb-email-agent.agent</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/caffeinate</string>
+    <string>-dimsu</string>
+    <string>/Users/aarnavnoble/.local/bin/uv</string>
+    <string>run</string>
+    <string>--frozen</string>
+    <string>uarb-agent</string>
+    <string>serve</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/aarnavnoble/uarb-email-agent</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/aarnavnoble/.local/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    <key>PYTHONUNBUFFERED</key>
+    <string>1</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <!-- Wait this long before restarting after an exit, so a crash loop cannot hammer Gmail or UARB. -->
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+  <key>ProcessType</key>
+  <string>Interactive</string>
+
+  <key>StandardOutPath</key>
+  <string>/Users/aarnavnoble/Library/Logs/uarb-email-agent/agent.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/aarnavnoble/Library/Logs/uarb-email-agent/agent.err.log</string>
+</dict>
+</plist>

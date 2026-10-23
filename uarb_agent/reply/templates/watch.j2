@@ -1,0 +1,18 @@
+{% import "_common.j2" as c %}
+{% macro outro(b) -%}
+I'll check it about once an hour and email you when any of these counts change. Reply UNWATCH {{ b.matter }} to stop.
+{%- endmacro %}
+
+{% macro text(b) %}
+I'm now watching {{ b.matter }}.
+
+{{ c.about(b.p) }}
+
+{{ outro(b) }}
+{% endmacro %}
+
+{% macro html(b) %}
+<p>I'm now watching {{ b.matter }}.</p>
+<p>{{ c.about(b.p) }}</p>
+<p>{{ outro(b) }}</p>
+{% endmacro %}

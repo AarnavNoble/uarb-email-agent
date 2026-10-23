@@ -1,0 +1,11 @@
+{% macro body(b) -%}
+Got your request for {{ b.what }}. I'm still downloading the documents from the UARB site and will reply in this thread as soon as they're ready.
+{%- endmacro %}
+
+{% macro text(b) %}
+{{ body(b) }}
+{% endmacro %}
+
+{% macro html(b) %}
+<p>{{ body(b) }}</p>
+{% endmacro %}

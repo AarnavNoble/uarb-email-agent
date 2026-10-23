@@ -1,0 +1,18 @@
+{% import "_common.j2" as c %}
+{% macro next_step(b) -%}
+{% if b.available %}Reply with the type you want and I'll send up to {{ b.batch }} of them as a ZIP: {{ b.available | oxford("or") }}.
+{%- else %}None of its tabs have any documents yet, so there is nothing to send.
+{%- endif %}
+{%- endmacro %}
+
+{% macro text(b) %}
+{{ c.about(b.p) }}
+
+{{ next_step(b) }}
+{{ c.watch_hint(b.matter) }}
+{% endmacro %}
+
+{% macro html(b) %}
+<p>{{ c.about(b.p) }}</p>
+<p>{{ next_step(b) }}<br>{{ c.watch_hint(b.matter) }}</p>
+{% endmacro %}

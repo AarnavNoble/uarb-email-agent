@@ -1,0 +1,41 @@
+{% macro row(r) -%}
+{{ r.doc_no }} {{ r.title }} ({{ r.tab }}{{ (", " ~ r.date) if r.date else "" }})
+{%- endmacro %}
+
+{% macro outro(b) -%}
+Reply with a type (for example "Other Documents from {{ b.matter }}") to get the files, or UNWATCH {{ b.matter }} to stop these alerts.
+{%- endmacro %}
+
+{% macro text(b) %}
+There's something new on {{ b.matter }} ({{ b.title }}):
+{% for ch in b.changes %}
+- {{ ch.tab }} went from {{ ch.was }} to {{ ch.now }}
+{% endfor %}
+{% if b.rows %}
+
+Newest filings:
+{% for r in b.rows %}
+- {{ row(r) }}
+{% endfor %}
+{% endif %}
+
+{{ outro(b) }}
+{% endmacro %}
+
+{% macro html(b) %}
+<p>There's something new on {{ b.matter }} ({{ b.title }}):</p>
+<ul>
+{% for ch in b.changes %}
+<li>{{ ch.tab }} went from {{ ch.was }} to {{ ch.now }}</li>
+{% endfor %}
+</ul>
+{% if b.rows %}
+<p style="margin-bottom:4px">Newest filings:</p>
+<ul style="margin-top:0">
+{% for r in b.rows %}
+<li>{{ row(r) }}</li>
+{% endfor %}
+</ul>
+{% endif %}
+<p>{{ outro(b) }}</p>
+{% endmacro %}

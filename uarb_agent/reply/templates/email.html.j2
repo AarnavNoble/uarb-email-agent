@@ -1,0 +1,23 @@
+<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#1f2328;max-width:640px">
+<p>Hi,</p>
+{% for n in notes %}
+<p>{{ n }}</p>
+{% endfor %}
+{% for b in blocks %}
+{% import b.kind ~ ".j2" as k %}
+{% if multi %}
+<h3 style="font-size:15px;margin:20px 0 6px">{{ b.heading }}</h3>
+{% endif %}
+{% for n in b.notes %}
+<p>{{ n }}</p>
+{% endfor %}
+{{ k.html(b) }}
+{% endfor %}
+{% if not_processed %}
+<p>I handle up to {{ cap }} requests per email, so I didn't get to {{ not_processed | oxford }}. Please send {{ "that one" if not_processed | length == 1 else "those" }} in a new email.</p>
+{% endif %}
+{% if footer %}
+<p style="color:#59636e;font-size:13px">Reply HELP to see everything I can do.</p>
+{% endif %}
+<p style="color:#59636e;font-size:13px">UARB Email Agent (automated reply)</p>
+</div>

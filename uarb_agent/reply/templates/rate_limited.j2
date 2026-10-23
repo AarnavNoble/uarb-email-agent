@@ -1,0 +1,11 @@
+{% macro body(b) -%}
+You've reached the limit of {{ b.per_hour }} requests per hour, so I'll answer new requests again from {{ b.until }}. Anything sent before then won't be processed, so please resend it after that.
+{%- endmacro %}
+
+{% macro text(b) %}
+{{ body(b) }}
+{% endmacro %}
+
+{% macro html(b) %}
+<p>{{ body(b) }}</p>
+{% endmacro %}

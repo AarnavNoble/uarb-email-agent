@@ -1,0 +1,22 @@
+# systemd unit for a Linux host (the grading-week server).
+#   sudo cp deploy/uarb-email-agent.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now uarb-email-agent
+#   journalctl -u uarb-email-agent -f
+[Unit]
+Description=UARB email agent
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=agent
+WorkingDirectory=/home/agent/uarb-email-agent
+ExecStart=/home/agent/.local/bin/uv run --no-dev uarb-agent serve
+Restart=always
+RestartSec=10
+# Chromium children belong to the service; stop them with it.
+KillMode=control-group
+TimeoutStopSec=30
+MemoryMax=1500M
+
+[Install]
+WantedBy=multi-user.target

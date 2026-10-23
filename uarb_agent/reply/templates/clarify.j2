@@ -1,0 +1,23 @@
+{% import "_common.j2" as c %}
+{% macro body(b) -%}
+{% if b.reason == "no_matter" %}I couldn't find a matter number in your email. UARB matter numbers are an M followed by five digits, like {{ b.example }}. Which matter should I look up, and which documents do you want: {{ b.types }}?
+{%- elif b.reason == "invalid_matter_like" %}That number doesn't look like a UARB matter number. They are an M followed by five digits, like {{ b.example }}. Could you check it and reply with the full number?
+{%- elif b.reason == "unknown_type" %}I wasn't sure which documents you wanted. Reply with one of {{ b.types }}, and I'll send up to {{ b.batch }} of them as a ZIP.
+{%- else %}{{ b.question }}
+{%- endif %}
+{%- endmacro %}
+
+{% macro text(b) %}
+{% if b.p %}
+{{ c.about(b.p) }}
+
+{% endif %}
+{{ body(b) }}
+{% endmacro %}
+
+{% macro html(b) %}
+{% if b.p %}
+<p>{{ c.about(b.p) }}</p>
+{% endif %}
+<p>{{ body(b) }}</p>
+{% endmacro %}

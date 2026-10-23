@@ -1,0 +1,18 @@
+{% import "_common.j2" as c %}
+{% macro body(b) -%}
+There are no {{ b.tab }} to download, so nothing is attached.
+{%- if b.available %} It does have {{ b.available | oxford }}; reply with one of those types and I'll send them.
+{%- else %} None of its tabs have any documents yet.
+{%- endif %}
+{%- endmacro %}
+
+{% macro text(b) %}
+{{ c.about(b.p) }}
+
+{{ body(b) }}
+{% endmacro %}
+
+{% macro html(b) %}
+<p>{{ c.about(b.p) }}</p>
+<p>{{ body(b) }}</p>
+{% endmacro %}

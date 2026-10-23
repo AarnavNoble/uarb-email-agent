@@ -1,0 +1,12 @@
+{% macro body(b) -%}
+The UARB site ({{ b.site }}) isn't responding as expected right now, so I couldn't finish {{ b.matter }}. Rather than guess at any details, I stopped there. Please try again in a little while.
+{%- if b.trace_id %} If it keeps happening, mention this reference: {{ b.trace_id }}.{% endif %}
+{%- endmacro %}
+
+{% macro text(b) %}
+{{ body(b) }}
+{% endmacro %}
+
+{% macro html(b) %}
+<p>{{ body(b) }}</p>
+{% endmacro %}

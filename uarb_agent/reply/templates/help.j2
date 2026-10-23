@@ -1,0 +1,23 @@
+{% macro text(b) %}
+Here's what I can do with the Nova Scotia UARB matter database:
+
+- Documents: name a matter and a type, for example "Other Documents from {{ b.example }}". I'll reply with a summary of the matter and up to {{ b.batch }} documents as a ZIP.
+- Summary: send just the matter number to get its details and document counts.
+- MORE: reply in the same thread for the next {{ b.batch }}.
+- GET <document number>: reply in the same thread for one specific document.
+- WATCH {{ b.example }}: I'll email you when something new is filed. UNWATCH {{ b.example }} stops it.
+
+The types are {{ b.types }}.
+{% endmacro %}
+
+{% macro html(b) %}
+<p>Here's what I can do with the Nova Scotia UARB matter database:</p>
+<ul>
+<li><b>Documents:</b> name a matter and a type, for example "Other Documents from {{ b.example }}". I'll reply with a summary of the matter and up to {{ b.batch }} documents as a ZIP.</li>
+<li><b>Summary:</b> send just the matter number to get its details and document counts.</li>
+<li><b>MORE:</b> reply in the same thread for the next {{ b.batch }}.</li>
+<li><b>GET &lt;document number&gt;:</b> reply in the same thread for one specific document.</li>
+<li><b>WATCH {{ b.example }}:</b> I'll email you when something new is filed. UNWATCH {{ b.example }} stops it.</li>
+</ul>
+<p>The types are {{ b.types }}.</p>
+{% endmacro %}

@@ -1,0 +1,13 @@
+{% macro body(b) -%}
+{% if b.was_watching %}I've stopped watching {{ b.matter }}, so you won't get any more alerts for it.
+{%- else %}I wasn't watching {{ b.matter }} for you, so there is nothing to stop.
+{%- endif %}
+{%- endmacro %}
+
+{% macro text(b) %}
+{{ body(b) }}
+{% endmacro %}
+
+{% macro html(b) %}
+<p>{{ body(b) }}</p>
+{% endmacro %}

@@ -1,0 +1,11 @@
+{% macro body(b) -%}
+{{ b.matter }} has no {{ b.tab }} on the UARB site, so there is nothing to attach.
+{%- endmacro %}
+
+{% macro text(b) %}
+{{ body(b) }}
+{% endmacro %}
+
+{% macro html(b) %}
+<p>{{ body(b) }}</p>
+{% endmacro %}

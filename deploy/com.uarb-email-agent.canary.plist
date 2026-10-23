@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Daily 08:00 `uarb-agent doctor`: one live check of the UARB layout plus one download. A failure pings
+     the healthchecks.io /fail endpoint when HEALTHCHECK_URL is set. Install like com.uarb-email-agent.agent. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.uarb-email-agent.canary</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/aarnavnoble/.local/bin/uv</string>
+    <string>run</string>
+    <string>--frozen</string>
+    <string>uarb-agent</string>
+    <string>doctor</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/aarnavnoble/uarb-email-agent</string>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>8</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/Users/aarnavnoble/Library/Logs/uarb-email-agent/canary.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/aarnavnoble/Library/Logs/uarb-email-agent/canary.log</string>
+</dict>
+</plist>

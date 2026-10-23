@@ -1,0 +1,11 @@
+{% macro body(b) -%}
+I couldn't find {{ b.matter }} on the UARB site. Matter numbers are an M followed by five digits, like {{ b.example }}. Please check the number and reply with it.
+{%- endmacro %}
+
+{% macro text(b) %}
+{{ body(b) }}
+{% endmacro %}
+
+{% macro html(b) %}
+<p>{{ body(b) }}</p>
+{% endmacro %}

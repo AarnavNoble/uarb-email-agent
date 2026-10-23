@@ -1,0 +1,70 @@
+{% import "_common.j2" as c %}
+{% macro sentence(b) -%}
+{% if b.mode == "all" %}I downloaded all {{ b.total }} {{ b.label }} and attached them as a ZIP.
+{%- elif b.mode == "only" %}I downloaded the only {{ b.label }} and attached it as a ZIP.
+{%- elif b.mode == "some" %}I downloaded {{ b.got }} out of the {{ b.total }} {{ b.label }} and attached {{ "it" if b.got == 1 else "them" }} as a ZIP.
+{%- elif b.mode == "range" %}I downloaded {{ b.window }} out of the {{ b.total }} {{ b.label }} and attached {{ "it" if b.got == 1 else "them" }} as a ZIP.
+{%- elif b.mode == "range_partial" %}From {{ b.window }} of the {{ b.total }} {{ b.label }}, I downloaded {{ b.got }} and attached {{ "it" if b.got == 1 else "them" }} as a ZIP.
+{%- elif b.mode == "both" %}I downloaded both {{ b.label }} and attached them as a ZIP.
+{%- elif b.total == 1 %}I couldn't attach the only {{ b.label }}, so there is no ZIP this time. The reason is below.
+{%- else %}I tried {{ b.tried }} of the {{ b.total }} {{ b.label }}, but none could be attached, so there is no ZIP this time. The reasons are below.
+{%- endif %}
+{%- endmacro %}
+
+{% macro receipt(b) -%}
+Retrieved from {{ b.site }}{{ (" in " ~ b.seconds ~ " s") if b.seconds else "" }}.
+{%- if b.got %} Checksums for every file are in manifest.csv inside the ZIP.{% endif %}
+{%- endmacro %}
+
+{% macro text(b) %}
+{{ c.about(b.p) }} {{ sentence(b) }}
+{% if b.files %}
+
+Attached:
+{% for f in b.files %}
+- {{ f.doc_no }} {{ f.title }}{{ (" (" ~ f.meta ~ ")") if f.meta else "" }}
+{% endfor %}
+{% endif %}
+{% if b.problems %}
+
+Not included:
+{% for s in b.problems %}
+- {{ s.doc_no }} {{ s.title }}: {{ s.reason }}
+{% endfor %}
+{% endif %}
+
+{% if b.more %}
+Reply MORE to get {{ b.more }}.
+{% endif %}
+{% if b.others %}
+You can also reply with another type: {{ b.others | oxford("or") }}.
+{% endif %}
+{{ c.watch_hint(b.matter) }}
+{{ receipt(b) }}
+{% endmacro %}
+
+{% macro html(b) %}
+<p>{{ c.about(b.p) }} {{ sentence(b) }}</p>
+{% if b.files %}
+<table cellpadding="4" cellspacing="0" style="border-collapse:collapse;font-size:13px;margin:0 0 12px">
+<tr style="text-align:left;color:#59636e"><th>No.</th><th>Title</th><th>Details</th></tr>
+{% for f in b.files %}
+<tr style="border-top:1px solid #d1d9e0;vertical-align:top"><td style="white-space:nowrap">{{ f.doc_no }}</td><td>{{ f.title }}</td><td style="white-space:nowrap">{{ f.meta }}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+{% if b.problems %}
+<p style="margin-bottom:4px">Not included:</p>
+<ul style="margin-top:0">
+{% for s in b.problems %}
+<li>{{ s.doc_no }} {{ s.title }}: {{ s.reason }}</li>
+{% endfor %}
+</ul>
+{% endif %}
+<p style="color:#59636e;font-size:13px">
+{% if b.more %}Reply MORE to get {{ b.more }}.<br>{% endif %}
+{% if b.others %}You can also reply with another type: {{ b.others | oxford("or") }}.<br>{% endif %}
+{{ c.watch_hint(b.matter) }}<br>
+{{ receipt(b) }}
+</p>
+{% endmacro %}
