@@ -406,7 +406,8 @@ async def test_search_command_cites_pages_and_offers_get(env, tmp_path):
     text = h.reply.text
     assert 'the 1 document (1 page) from M12205 that I\'ve already downloaded for "semi-annual reports"' in text
     assert "1. 102674 Board Order (M12205 Key Documents, Jul 8, 2026), page 1" in text
-    assert "**semi-annual reports**" in text and "<b>semi-annual reports</b>" in h.reply.html
+    assert "file semi-annual reports" in text and "**" not in text
+    assert "<b>semi-annual reports</b>" in h.reply.html
     assert "Reply GET 102674 from M12205 to get this document." in text
     assert h.attachments == [] and site.opened == 0  # the index only; the site is never touched
     assert h.thread.matter == "M12205"

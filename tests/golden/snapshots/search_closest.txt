@@ -5,7 +5,7 @@ I searched the 31 documents (1,300 pages, from 7 matters) that I've already down
 No single page has every word of "NSPI annual reports", so this is the closest match:
 
 1. 88655 Board Decision (M10431 Key Documents), page 141
-"...annual **reports** <of> NSPI"
+"...annual reports <of> NSPI"
 Reply GET 88655 from M10431 to get this document.
 
 Reply HELP to see everything I can do.

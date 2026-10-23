@@ -30,7 +30,7 @@ Reply GET {{ h.doc_no }} from {{ h.matter }} to get this document.
 {% for h in b.hits %}
 
 {{ loop.index }}. {{ h.doc_no }} {{ h.title }} ({{ h.where }}), page {{ h.page }}
-"{{ h.snippet }}"
+"{{ h.snippet | replace("**", "") }}"
 {{ get_hint(h) }}
 {% endfor %}
 {% endif %}
