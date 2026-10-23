@@ -1,0 +1,14 @@
+# Serves expiring download links for files too large to email. Only /d/<token>/<file> is served; there are no
+# directory listings. Replace the host with your own (sslip.io maps <ip-with-dashes>.sslip.io to that IP).
+201-79-51-198.sslip.io {
+	handle_path /d/* {
+		root * /home/agent/uarb-email-agent/data/links
+		file_server
+		header Content-Disposition attachment
+		header Cache-Control "private, no-store"
+	}
+	handle {
+		respond 404
+	}
+	header -Server
+}
