@@ -6,6 +6,7 @@ a box means lives here so it can be tested offline against captured snapshots.""
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import re
 from typing import TypedDict
 
@@ -25,6 +26,8 @@ FOUND_RE = re.compile(r"Found Count:\s*(\d+)")
 DATE_RE = re.compile(r"^\d{1,2}/\d{1,2}/\d{4}$")
 EXT_RE = re.compile(r"^\.[A-Za-z0-9]{1,5}$")
 BUTTON_TEXT = {"GO GET IT", "Preview"}
+HEARING_TABS = {DocType.TRANSCRIPTS, DocType.RECORDINGS}
+HEARING_FORMATS = {"pdf", "mp3", "mp4", "wav", "m4a", "doc", "docx"}  # a bare format field on hearing rows
 
 
 def parse_date(text: str | None) -> dt.date | None:
@@ -174,10 +177,31 @@ def _validate(fields: dict[str, str]) -> MatterMetadata:
 # --- document rows ----------------------------------------------------------------------------------
 
 
+def _hearing_row(top: list[Box], lower: list[Box], date: Box | None, tab: DocType) -> DocRow:
+    """Transcripts and Recordings rows have no document number: just a date and free text (a hearing title,
+    'September 12, 2022' + 'Evening Session', or the panel's names), and several rows can share a date or a
+    first field. The id is the tab letter, the date and a short hash of the row text, e.g. 'T-20220912-3fa1':
+    unique within the tab, stable across listings, and shaped like a document number so GET accepts it."""
+    texts = [" ".join(b["t"].split()) for b in top]
+    fmt = next((t for t in texts if t.lower() in HEARING_FORMATS), None)
+    title = " - ".join(t for t in texts if t is not fmt)
+    day = parse_date(date["t"]) if date else None
+    digest = hashlib.sha1(f"{day} {' | '.join(texts)}".encode()).hexdigest()[:4]
+    return DocRow(
+        doc_no=f"{str(tab)[0]}-{day:%Y%m%d}-{digest}" if day else f"{str(tab)[0]}-{digest}",
+        title=title,
+        date=day,
+        ext=f".{fmt.lower()}" if fmt else None,
+        security=lower[0]["t"].strip() if lower else None,
+        tab=tab,
+    )
+
+
 def parse_row(boxes: list[Box], tab: DocType) -> DocRow | None:
     """One grid row -> DocRow. Each tab is its own layout, so fields are found by shape, not by id:
     date and extension by regex, doc no is the top-left box, the title is the widest other top box,
-    and the security level is the left-most box on the lower line. None for a row with no doc no."""
+    and the security level is the left-most box on the lower line. None for a row with no doc no.
+    Transcripts and Recordings have no doc no column; see `_hearing_row`."""
     boxes = [b for b in boxes if b["t"].strip() and b["t"].strip() not in BUTTON_TEXT]
     date = next((b for b in boxes if DATE_RE.match(b["t"].strip())), None)
     ext = next((b for b in boxes if EXT_RE.match(b["t"].strip())), None)
@@ -187,6 +211,8 @@ def parse_row(boxes: list[Box], tab: DocType) -> DocRow | None:
     top_y = min(b["y"] for b in rest)
     top = sorted((b for b in rest if b["y"] - top_y < LINE_TOLERANCE), key=lambda b: b["x"])
     lower = sorted((b for b in rest if b["y"] - top_y >= LINE_TOLERANCE), key=lambda b: b["x"])
+    if tab in HEARING_TABS:
+        return _hearing_row(top, lower, date, tab)
     titles = sorted(top[1:], key=lambda b: -b["w"])
     return DocRow(
         doc_no=top[0]["t"].strip(),

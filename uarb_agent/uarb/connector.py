@@ -354,6 +354,10 @@ class UarbSession:
         window = self.page.locator(".v-window").first
         await window.wait_for(timeout=10_000)
         header = (await window.locator(".v-window-header").inner_text()).strip()
+        if "export" in header.lower():  # Transcripts and Recordings ask for a filename first
+            await self._confirm_export(window)
+            window = self.page.locator(".v-window").first
+            header = (await window.locator(".v-window-header").inner_text()).strip()
         if "download" not in header.lower():
             text = await window.inner_text()
             await self._dismiss_modal()
@@ -369,6 +373,26 @@ class UarbSession:
         files = [await self._save(buttons.nth(i), row, dest) for i in range(await buttons.count())]
         await self._dismiss_modal()
         return files
+
+    async def _confirm_export(self, window: Locator) -> None:
+        """'Export Field to File' asks for a Save As name (default e.g. 'NSEB-M12600-August 18, 2026.pdf'), then
+        OK opens the usual Download Files dialog. The server puts that name unquoted into Content-Disposition, so
+        a comma makes Chromium refuse the response (ERR_RESPONSE_HEADERS_MULTIPLE_CONTENT_DISPOSITION): strip
+        the characters that break the header before confirming."""
+        field = window.locator("input").first
+        if await field.count():
+            name = await field.input_value()
+            safe = re.sub(r'[,;"\\]+', "", name).strip()
+            if safe and safe != name:
+                await field.fill(safe)
+                await self.page.wait_for_timeout(300)
+        ok = window.get_by_role("button", name=re.compile(r"^OK$", re.I))
+        if not await ok.count():
+            text = clean_modal_text(await window.inner_text())
+            await self._dismiss_modal()
+            raise UnexpectedModal(text)
+        await ok.first.click()
+        await self.page.locator(".v-window .fm-download-button").first.wait_for(timeout=15_000)
 
     async def _go_get_it(self, row: DocRow) -> Locator:
         """Bring `row` fully into the grid's viewport and return its GO GET IT button."""
