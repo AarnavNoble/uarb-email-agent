@@ -17,12 +17,13 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from email import policy
 from email.message import EmailMessage, Message
+from email.utils import parseaddr
 from pathlib import Path
 
 import structlog
 
 from uarb_agent.config import Settings
-from uarb_agent.core import Fetcher, as_error, new_trace_id
+from uarb_agent.core import Fetcher, as_error, new_trace_id, request_timeout_s
 from uarb_agent.intent.aliases import match_type
 from uarb_agent.intent.parser import batch_note, clean_body, parse
 from uarb_agent.jobs.ledger import TERMINAL, Ledger, Status, ThreadState
@@ -46,18 +47,23 @@ from uarb_agent.reply.render import (
     Outcome,
     Reply,
     ReplyCheckFailed,
+    greet,
     render_ack,
     render_clarify,
     render_help,
     render_outcomes,
+    render_search,
     render_unwatch,
     render_watch_confirm,
 )
 
 log = structlog.get_logger(__name__)
 
-REQUEST_TIMEOUT_S = 120.0
-EMAIL_TIMEOUT_S = 240.0
+# The longest a request may take, for a tab with the longest download budget (Recordings: 240 s + wrap-up).
+REQUEST_TIMEOUT_S = max(request_timeout_s(t) for t in DocType)
+# One Recordings request (280 s) plus packing, linking and composing the reply.
+EMAIL_TIMEOUT_S = 360.0
+SEARCH_HITS = 5
 ACK_AFTER_S = 75.0
 LEASE_S = 300.0
 _HELP = re.compile(r"(?i)^\W*(help|commands|what can you do)\W*$")
@@ -92,6 +98,11 @@ def bodies(msg: Message) -> tuple[str, str | None]:
     return part("plain") or "", part("html")
 
 
+def display_name(msg: Message) -> str:
+    """The sender's name as their client shows it ('Jane Doe' in 'Jane Doe <jane@example.com>'); may be empty."""
+    return parseaddr(str(msg.get("From", "")))[0]
+
+
 def next_offset(report: MatterReport) -> int:
     """Where MORE resumes: one past the furthest row this report attempted or passed over."""
     position = {r.doc_no: i for i, r in enumerate(report.rows)}
@@ -111,8 +122,11 @@ class Pipeline:
         self.ledger = ledger
         self.settings = settings
         self.out_dir = out_dir or settings.data_dir / "out"
-        self.request_timeout_s = REQUEST_TIMEOUT_S
+        self.request_timeout_s: float | None = None  # None: per tab, from core.request_timeout_s
         self.ack_after_s = ACK_AFTER_S
+
+    def _timeout(self, doc_type: DocType | None) -> float:
+        return self.request_timeout_s if self.request_timeout_s is not None else request_timeout_s(doc_type)
 
     async def handle(
         self,
@@ -189,7 +203,7 @@ class Pipeline:
         try:
             report = await asyncio.wait_for(
                 self.fetcher.fetch(req.matter, req.doc_type, req.limit, req.offset, trace_id=trace_id),
-                self.request_timeout_s,
+                self._timeout(req.doc_type),
             )
             return Outcome(req, report=report)
         except Exception as e:
@@ -242,6 +256,8 @@ class Pipeline:
     async def _command(self, pr: ParseResult, sender: str, state: ThreadState, trace_id: str) -> Handled:
         assert pr.command is not None
         kind, args = pr.command.kind, pr.command.args
+        if kind is CommandKind.SEARCH:
+            return await self._search(args[0], args[1] if len(args) > 1 else None, state, trace_id)
         matter = args[-1]
         try:
             if kind is CommandKind.UNWATCH:
@@ -256,7 +272,7 @@ class Pipeline:
                     )
                     return Handled(render_clarify(Clarify(reason="watch_limit", question=q)), trace_id)
                 report = await asyncio.wait_for(
-                    self.fetcher.fetch(matter, None, trace_id=trace_id), self.request_timeout_s
+                    self.fetcher.fetch(matter, None, trace_id=trace_id), self._timeout(None)
                 )
                 self.ledger.add_watch(sender, matter, snapshot(report))
                 state.matter = matter
@@ -266,7 +282,8 @@ class Pipeline:
             doc_no = args[0]
             prefer = DocType(state.doc_type) if state.doc_type else None
             report = await asyncio.wait_for(
-                self.fetcher.find_doc(matter, doc_no, prefer, trace_id=trace_id), self.request_timeout_s
+                self.fetcher.find_doc(matter, doc_no, prefer, trace_id=trace_id),
+                REQUEST_TIMEOUT_S if self.request_timeout_s is None else self.request_timeout_s,
             )
             if report is None:
                 q = (
@@ -284,6 +301,27 @@ class Pipeline:
             err = as_error(e, trace_id)
             req = Request(matter=matter)
             return Handled(render_outcomes([Outcome(req, error=err)]), trace_id, thread=state)
+
+    async def _search(self, query: str, matter: str | None, state: ThreadState, trace_id: str) -> Handled:
+        """SEARCH: cited pages from the local full-text index of downloaded documents. Never touches the site."""
+
+        def run():
+            index = self.fetcher.index
+            return index.search(query, matter=matter, limit=SEARCH_HITS), index.stats(matter)
+
+        try:
+            hits, stats = await asyncio.to_thread(run)
+        except Exception as e:  # a broken index must not cost the sender a reply
+            log.warning("pipeline.search_failed", trace_id=trace_id, error=repr(e))
+            q = (
+                "Sorry, I couldn't search the downloaded documents just now. Please try again in a little while. "
+                f"If it keeps happening, mention this reference: {trace_id}."
+            )
+            return Handled(render_clarify(Clarify(reason="search_failed", question=q)), trace_id)
+        log.info("pipeline.searched", trace_id=trace_id, matter=matter, hits=len(hits))
+        if matter:
+            state.matter = matter  # so a bare 'GET <doc_no>' in this thread knows the matter
+        return Handled(render_search(query, matter, hits, stats), trace_id, thread=state)
 
     # --- failure --------------------------------------------------------------------------------
 
@@ -462,11 +500,12 @@ class Worker:
                 mid, Status.WORKING, Status.FAILED, reason=f"no reply needed: {handled.silent_reason}"
             )
             return
+        greeted = greet(handled.reply, display_name(ib.msg))
         reply = build_reply(
             ib.msg,
             from_addr=self.agent_email,
-            text=handled.reply.text,
-            html=handled.reply.html,
+            text=greeted.text,
+            html=greeted.html,
             attachments=handled.attachments,
             trace_id=handled.trace_id,
         )
@@ -493,7 +532,7 @@ class Worker:
 
     def _acker(self, ib: Inbound) -> AckFn:
         async def ack(requests: Sequence[Request]) -> None:
-            reply = render_ack(requests)
+            reply = greet(render_ack(requests), display_name(ib.msg))
             msg = build_reply(ib.msg, from_addr=self.agent_email, text=reply.text, html=reply.html)
             raw = msg.as_bytes(policy=policy.SMTP)
             await asyncio.to_thread(self.transport.send, raw, self.agent_email, [str(msg["To"])])

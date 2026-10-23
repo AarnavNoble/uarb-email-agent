@@ -7,6 +7,7 @@ I'll check it about once an hour and email you when any of these counts change. 
 I'm now watching {{ b.matter }}.
 
 {{ c.about(b.p) }}
+{{ c.decision_text(b.p) }}
 
 {{ outro(b) }}
 {% endmacro %}
@@ -14,5 +15,6 @@ I'm now watching {{ b.matter }}.
 {% macro html(b) %}
 <p>I'm now watching {{ b.matter }}.</p>
 <p>{{ c.about(b.p) }}</p>
+{{ c.decision_html(b.p) }}
 <p>{{ outro(b) }}</p>
 {% endmacro %}

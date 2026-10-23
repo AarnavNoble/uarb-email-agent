@@ -1,8 +1,8 @@
-Hi,
+Hi there,
 
 M12205: Other Documents
 =======================
-M12205 is about Halifax Regional Water Commission - Windsor Street Exchange Redevelopment Project - $69,275,000. It relates to Water within the Capital Expenditure Approvals category. The matter had an initial filing on April 7, 2025 and a final filing on October 23, 2025. I found 13 Exhibits, 6 Key Documents, 43 Other Documents, 0 Transcripts, and 0 Recordings. I downloaded 10 out of the 43 Other Documents and attached them as a ZIP.
+M12205 is about Halifax Regional Water Commission - Windsor Street Exchange Redevelopment Project - $69,275,000. It relates to Capital Expenditure Approvals within the Water category. The matter had an initial filing on April 7, 2025 and a final filing on October 23, 2025. The matter is closed; outcome: Directions given. I found 62 documents in total: 13 Exhibits, 6 Key Documents, 43 Other Documents, and no Transcripts or Recordings. I downloaded 10 out of the 43 Other Documents and am attaching them as a ZIP here.
 
 Attached:
 - 102674 Board Order (Jul 8, 2026, 166 KB)
@@ -16,8 +16,8 @@ Attached:
 - 102521 Affidavit of Publication (May 24, 2026, 236 KB)
 - 102504 CA Letter - Consultant Retained (May 19, 2026, 245 KB)
 
-Not included:
-- 102589 Intervenor Request - Halifax Chamber: confidential on the UARB site
+Skipped as confidential (the UARB site only offers a notice in its place):
+- 102589 Intervenor Request - Halifax Chamber
 
 Reply MORE to get documents 12-21.
 You can also reply with another type: Exhibits or Key Documents.
@@ -26,7 +26,7 @@ Retrieved from uarb.novascotia.ca in 28 s. Checksums for every file are in manif
 
 M11111: Exhibits
 ================
-M11111 is about Nova Scotia Power Inc. - General Rate Application. It relates to Electricity within the Rates category. The matter had an initial filing on January 15, 2024 and has no final filing yet. I found 2 Exhibits, 0 Key Documents, 0 Other Documents, 1 Transcript, and 0 Recordings. I downloaded both Exhibits and attached them as a ZIP.
+M11111 is about Nova Scotia Power Inc. - General Rate Application. It relates to Rates within the Electricity category. The matter had an initial filing on January 15, 2024 and has no final filing yet. I found 3 documents in total: 2 Exhibits, 1 Transcript, and no Key Documents, Other Documents, or Recordings. I downloaded both Exhibits and am attaching them as a ZIP here.
 
 Attached:
 - H-4(C)-i NSPI Evidence (Feb 1, 2024, 166 KB)

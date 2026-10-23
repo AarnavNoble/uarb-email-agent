@@ -6,15 +6,18 @@ Every number in a reply comes from a MatterReport, or from an argument the calle
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import html as htmllib
 import re
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from email.header import decode_header, make_header
 from pathlib import Path
 from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
+from markupsafe import Markup, escape
 
 from uarb_agent.models import (
     DOC_TYPES,
@@ -27,7 +30,9 @@ from uarb_agent.models import (
     MatterNotFound,
     MatterReport,
     Request,
+    Skipped,
 )
+from uarb_agent.search.index import Hit, IndexStats
 
 SITE = "uarb.novascotia.ca"
 MATTER_EXAMPLE = "M01234"
@@ -41,6 +46,11 @@ _SINGULAR = {
     DocType.TRANSCRIPTS: "Transcript",
     DocType.RECORDINGS: "Recording",
 }
+
+GREETING = "Hi there,"  # when the sender's display name gives no usable first name
+_HONORIFICS = {"mr", "mrs", "ms", "miss", "dr", "prof"}
+_NAME = re.compile(r"[^\W\d_]+(?:['-][^\W\d_]+)*")
+_BLANK = {"", "other", "others", "n/a", "none"}  # type/category values that say nothing
 
 Block = dict[str, Any]
 
@@ -87,6 +97,38 @@ def oxford(items: Sequence[str], conj: str = "and") -> str:
     return f"{', '.join(items[:-1])}, {conj} {items[-1]}"
 
 
+def article(word: str) -> str:
+    return f"{'an' if word[:1].lower() in 'aeiou' else 'a'} {word}"
+
+
+def first_name(display: str | None) -> str | None:
+    """The first name in a From display name ('Jane Doe', 'Doe, Jane', 'Dr. Jane Doe'), or None when it is
+    absent or does not look like a name (an address, digits, initials)."""
+    if not display:
+        return None
+    with contextlib.suppress(ValueError, LookupError, UnicodeError):
+        display = str(make_header(decode_header(display)))  # RFC 2047 words from a compat32 header
+    display = display.strip().strip("\"'").strip()
+    if "@" in display or any(ch.isdigit() for ch in display):
+        return None
+    if "," in display:
+        display = display.split(",", 1)[1]
+    words = [w for w in display.split() if w.rstrip(".").lower() not in _HONORIFICS]
+    if not words or len(words[0]) < 2 or not _NAME.fullmatch(words[0]):
+        return None
+    return words[0].capitalize() if words[0].islower() else words[0]
+
+
+def greet(reply: Reply, display_name: str | None) -> Reply:
+    """Address `reply` to the sender by first name instead of the generic greeting every render starts with."""
+    name = first_name(display_name)
+    if name is None:
+        return reply
+    text = reply.text.replace(GREETING, f"Hi {name},", 1)
+    html = reply.html.replace(f"<p>{GREETING}</p>", f"<p>Hi {htmllib.escape(name)},</p>", 1)
+    return replace(reply, text=text, html=html)
+
+
 def long_date(d: dt.date) -> str:
     return f"{d:%B} {d.day}, {d.year}"
 
@@ -123,6 +165,7 @@ def allowed_numbers(report: MatterReport) -> set[str]:
     """Every number the report itself states: counts, dates, and digits inside its text fields."""
     md = report.metadata
     texts = [md.matter_no, md.title, md.type, md.category, md.status or "", md.outcome or "", report.trace_id]
+    texts.append(report.decision or "")  # read from a cached Board Order; its numbers are the document's own
     texts += [f"{r.doc_no} {r.title}" for r in report.rows]
     texts += [f"{f.doc_no} {f.title}" for f in report.files]
     texts += [f"{s.doc_no} {s.title} {s.reason}" for s in report.skipped]
@@ -131,6 +174,7 @@ def allowed_numbers(report: MatterReport) -> set[str]:
     for r in report.rows:
         out |= _date_numbers(r.date)
     out |= {str(n) for n in report.counts.values()}
+    out.add(str(sum(report.counts.values())))
     out.add(str(report.offset))
     return out
 
@@ -145,16 +189,47 @@ def check_numbers(text: str, allowed: set[str]) -> None:
 # ---------------------------------------------------------------- blocks
 
 
+def found(counts: dict[DocType, int]) -> str:
+    """The grand total, then each tab in site order, empty tabs last: '62 documents in total: 13 Exhibits, ...,
+    and no Transcripts or Recordings'."""
+    total = sum(counts.get(t, 0) for t in DOC_TYPES)
+    present = [t for t in DOC_TYPES if counts.get(t, 0)]
+    absent = [str(t) for t in DOC_TYPES if not counts.get(t, 0)]
+    if not present:
+        return "no documents on any of its tabs"
+    if len(present) == 1:
+        only = present[0]
+        if total == 1:
+            return f"1 document in total, {article(label(1, only))}"
+        return f"{total} documents in total, all of them {only}"
+    parts = [n_docs(counts[t], t) for t in present]
+    if absent:
+        parts.append(f"no {oxford(absent, 'or')}")
+    return f"{total} documents in total: {oxford(parts)}"
+
+
+def _meaningful(value: str | None) -> str:
+    value = (value or "").strip().rstrip(".")
+    return "" if value.lower() in _BLANK else value
+
+
 def _about(report: MatterReport) -> dict[str, Any]:
     md = report.metadata
+    kind = _meaningful(md.type)
+    status = _meaningful(md.status)
     return {
         "matter": md.matter_no,
         "title": md.title.strip().rstrip("."),
-        "type": md.type.strip(),
-        "category": md.category.strip(),
+        "type": kind,
+        "a_type": article(kind) if kind else "",
+        "category": _meaningful(md.category),
+        "status": status.lower(),
+        "closed": "closed" in status.lower(),
+        "outcome": _meaningful(md.outcome),
         "received": long_date(md.date_received) if md.date_received else None,
         "final": long_date(md.date_final) if md.date_final else None,
-        "counts": oxford([n_docs(report.counts.get(t, 0), t) for t in DOC_TYPES]),
+        "counts": found(report.counts),
+        "decision": report.decision,
     }
 
 
@@ -165,11 +240,21 @@ def _available(report: MatterReport, exclude: DocType | None = None) -> list[str
     return [f"{t} ({n})" for n, t in found]
 
 
+def _restriction(skip: Skipped, row: DocRow | None) -> str | None:
+    """How the site marks a document it only shows a notice for ('confidential', 'Board Only'), or None when
+    `skip` is for another reason (too large to email)."""
+    level = " ".join(((row.security if row else None) or "").split())
+    if level.lower() not in ("", "public"):
+        return "confidential" if level.lower() == "confidential" else level.title()
+    reason = skip.reason.lower()
+    return "confidential" if "confidential" in reason or "notice" in reason else None
+
+
 def _block(kind: str, allowed: Iterable[str] = (), **fields: Any) -> Block:
     return {"kind": kind, "allowed": set(allowed), "heading": None, "notes": [], **fields}
 
 
-def _report_block(report: MatterReport, batch: int, link_days: int = LINK_DAYS) -> Block:
+def _report_block(report: MatterReport, batch: int, link_days: int = LINK_DAYS, limit: int | None = None) -> Block:
     base = {"p": _about(report), "matter": report.metadata.matter_no}
     allowed = allowed_numbers(report)
     t = report.requested
@@ -218,7 +303,26 @@ def _report_block(report: MatterReport, batch: int, link_days: int = LINK_DAYS) 
     if links:
         extra |= {str(len(files)), str(len(links)), str(link_days)}
     problems = [{"doc_no": f.doc_no, "title": f.title, "reason": "download failed"} for f in report.files if not f.ok]
-    problems += [{"doc_no": s.doc_no, "title": s.title, "reason": s.reason} for s in report.skipped]
+    restricted, marks = [], []
+    by_no = {r.doc_no: r for r in report.rows}
+    for s in report.skipped:
+        if mark := _restriction(s, by_no.get(s.doc_no)):
+            restricted.append({"doc_no": s.doc_no, "title": s.title})
+            marks += [] if mark in marks else [mark]
+        else:
+            problems.append({"doc_no": s.doc_no, "title": s.title, "reason": s.reason})
+    extra |= {str(len(restricted)), str(len(problems))}
+    if got == 0 and restricted and not problems:
+        mode = "restricted"
+
+    # Fewer delivered than asked for: say why up front. The fetch passes over restricted rows and failed downloads
+    # without counting them, and counts files later found too large to email. So it stops short of `limit` only
+    # when the tab runs out (restricted rows are then part of the reason) or its time budget does.
+    limit = batch if limit is None else limit
+    fetched = got + len(report.skipped) - len(restricted)
+    stopped = got > 0 and fetched < limit and end < total
+    short = 0 < got < min(limit, total - report.offset)
+    ran_out = short and end == total
 
     more = None
     if got and end < total:
@@ -239,11 +343,18 @@ def _report_block(report: MatterReport, batch: int, link_days: int = LINK_DAYS) 
         tried=tried,
         total=total,
         label=label(total, t),
+        one=label(1, t),
+        many=str(t),
         window=window,
         files=files,
         links=links,
         link_days=link_days,
         problems=problems,
+        restricted=restricted,
+        marked=oxford(marks, "or"),
+        short=short,
+        ran_out=ran_out,
+        stopped=stopped,
         more=more,
         others=[str(o) for o in DOC_TYPES if o != t and report.counts.get(o, 0) > 0],
         seconds=seconds,
@@ -325,6 +436,7 @@ def _render(
         "not_processed": skipped,
         "cap": len(blocks),
         "footer": footer,
+        "greeting": GREETING,
     }
     text = _tidy_text(_TEXT_ENV.get_template("email.txt.j2").render(ctx))
     html = _tidy_html(_HTML_ENV.get_template("email.html.j2").render(ctx))
@@ -345,7 +457,7 @@ def render_outcomes(
     blocks = []
     for o in outcomes:
         if o.report is not None:
-            b = _report_block(o.report, batch, link_days)
+            b = _report_block(o.report, batch, link_days, limit=o.request.limit)
         elif o.error is not None:
             b = _error_block(o.request, o.error)
         else:
@@ -357,10 +469,20 @@ def render_outcomes(
 
 
 def render_report(
-    report: MatterReport, *, notes: Sequence[str] = (), batch: int = BATCH, link_days: int = LINK_DAYS
+    report: MatterReport,
+    *,
+    notes: Sequence[str] = (),
+    batch: int = BATCH,
+    link_days: int = LINK_DAYS,
+    limit: int | None = None,
 ) -> Reply:
-    """Shortcut for the common single-request reply."""
-    request = Request(matter=report.metadata.matter_no, doc_type=report.requested, offset=report.offset)
+    """Shortcut for the common single-request reply. `limit` is what was asked for (default: a full batch)."""
+    request = Request(
+        matter=report.metadata.matter_no,
+        doc_type=report.requested,
+        limit=batch if limit is None else limit,
+        offset=report.offset,
+    )
     return render_outcomes([Outcome(request, report=report)], notes=notes, batch=batch, link_days=link_days)
 
 
@@ -418,6 +540,56 @@ def render_ack(requests: Sequence[Request]) -> Reply:
 def render_rate_limited(until: dt.datetime, per_hour: int) -> Reply:
     when = until.strftime("%H:%M %Z").strip()
     return _render([_block("rate_limited", numbers_in(when) | {str(per_hour)}, until=when, per_hour=per_hour)])
+
+
+_BOLD = re.compile(r"\*\*(.+?)\*\*")
+
+
+def _snippet_html(snippet: str) -> Markup:
+    """The index marks matched words **like this**; bold them in HTML, escaping everything else."""
+    out, pos = Markup(""), 0
+    for m in _BOLD.finditer(snippet):
+        out += escape(snippet[pos : m.start()]) + Markup("<b>") + escape(m.group(1)) + Markup("</b>")
+        pos = m.end()
+    return out + escape(snippet[pos:])
+
+
+def render_search(query: str, matter: str | None, hits: Sequence[Hit], stats: IndexStats) -> Reply:
+    """Cited pages for a SEARCH command, each with the GET command that fetches its document. `stats` covers what
+    was searched (one matter's documents when `matter` is set), so the reply can say how much that is."""
+    items = []
+    for h in hits:
+        date = short_date(dt.date.fromisoformat(h.date)) if h.date else None
+        where = ", ".join(x for x in (f"{h.matter} {h.tab}", date) if x)
+        items.append(
+            {
+                "doc_no": h.doc_no,
+                "matter": h.matter,
+                "title": h.title or "(untitled)",
+                "where": where,
+                "page": h.page,
+                "snippet": h.snippet,
+                "snippet_html": _snippet_html(h.snippet),
+            }
+        )
+    searchable = stats.documents - stats.skipped
+    fields = {
+        "query": " ".join(query.replace('"', " ").split()),  # shown inside quotes of its own
+        "matter": matter,
+        "hits": items,
+        "closest": bool(hits) and not hits[0].all_terms,
+        "documents": searchable,
+        "pages": f"{stats.pages:,}",
+        "matters": stats.matters,
+        "scanned": stats.image_only_pages,
+        "example": matter or "M12205",
+    }
+    sourced = [query, matter or "", fields["example"]]
+    sourced += [f"{i['doc_no']} {i['matter']} {i['title']} {i['where']} {i['page']} {i['snippet']}" for i in items]
+    allowed = numbers_in(" ".join(sourced))
+    allowed |= {str(n) for n in (searchable, stats.pages, stats.matters, stats.image_only_pages, len(items))}
+    allowed |= {str(i) for i in range(1, len(items) + 1)}
+    return _render([_block("search", allowed, **fields)])
 
 
 def render_help(*, batch: int = BATCH) -> Reply:

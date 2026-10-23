@@ -25,6 +25,10 @@ RUN_FILE = Path("data/test_run.json")
 
 CASES = [
     ("canonical", "Documents request", "Hi Agent, can you give me a list of Key Documents files from M12205?"),
+    ("example", "Documents request", "Hi Agent, Can you give me Other Documents files from M12205? Thanks!"),
+    ("search", "Search", "SEARCH semi-annual reports in M12205"),
+    ("transcripts", "Transcripts", "Transcripts for M12600 please"),
+    ("second-matter", "Request", "Key Documents from M12383"),
     ("typo", "docs", "exibits for m-12205 please"),
     ("exhibits", "Exhibits", "Please send me the Exhibits for M12205."),
     ("zero-docs", "Transcripts", "Can I get the transcripts for M12205?"),

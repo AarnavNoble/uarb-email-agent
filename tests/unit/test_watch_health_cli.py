@@ -115,4 +115,25 @@ def test_cli_simulate_writes_eml_without_sending(tmp_path, monkeypatch, capsys):
     reply = email.message_from_bytes(eml.read_bytes(), policy=policy.default)
     assert reply["To"] == "g@example.com" and reply["Subject"] == "Re: Docs"
     assert [p.get_filename() for p in reply.iter_attachments()] == ["M12205_Exhibits.zip"]
-    assert "I downloaded all 3 Exhibits" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "I downloaded all 3 Exhibits" in out
+    assert "Hi Grader," in out  # greeted by name, as the worker does
+
+
+def test_cli_index_then_search(tmp_path, monkeypatch, capsys):
+    settings = Settings(data_dir=tmp_path)
+    site = FakeSite()
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+    monkeypatch.setattr(cli, "Fetcher", lambda s: Fetcher(s, connector=site, store=Store(s.cache_dir)))
+    assert cli.main(["fetch", "M12205", "Exhibits", "--limit", "2"]) == 0
+    out = capsys.readouterr().out
+    assert "I downloaded 2 out of the 3 Exhibits" in out
+    assert "taking a while" not in out  # --limit 2 is what was asked for, not a time-budget stop
+    assert cli.main(["index"]) == 0  # the fetch already indexed both files; a backfill adds nothing
+    assert capsys.readouterr().out.startswith("Indexed 0 new pages. 2 files from 1 matters")
+    assert cli.main(["search", "anything", "--matter", "M12205"]) == 0
+    assert 'No pages in the downloaded documents match "anything".' in capsys.readouterr().out
+
+
+def test_cli_has_an_mcp_command():
+    assert cli.build_parser().parse_args(["mcp"]).cmd == "mcp"

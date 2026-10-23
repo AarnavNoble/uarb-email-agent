@@ -254,3 +254,30 @@ async def test_download_does_not_retry_a_refusal(tmp_path):
 def test_safe_filename():
     assert safe_filename("102674.pdf") == "102674.pdf"
     assert safe_filename("../H-4(C)-i report.pdf") == "H-4(C)-i_report.pdf"
+
+
+async def test_trace_on_a_hung_page_gives_up_quickly_and_keeps_the_error(tmp_path, monkeypatch):
+    # Regression: a hung site made the trace screenshot wait 10 s, twice per fetch, past the request budget.
+    monkeypatch.setattr("uarb_agent.uarb.connector.TRACE_TIMEOUT_S", 0.05)
+
+    class HungPage:
+        async def screenshot(self, *, path, **kw):
+            assert kw["timeout"] == 50
+            raise PlaywrightTimeout("screenshot timed out")
+
+        async def content(self):
+            await asyncio.sleep(60)
+
+    s = UarbSession(HungPage(), url="https://example.invalid", trace_dir=tmp_path / "trace")
+    start = time.monotonic()
+    assert await s.save_trace("error", RuntimeError("goto timed out")) is None
+    assert time.monotonic() - start < 1
+    assert "goto timed out" in (tmp_path / "trace" / "error.txt").read_text()
+
+    class SlowContentPage(HungPage):
+        async def screenshot(self, *, path, **_kw):
+            path.write_bytes(b"png")
+
+    start = time.monotonic()
+    assert await UarbSession(SlowContentPage(), url="", trace_dir=tmp_path / "t2").save_trace("x") is None
+    assert time.monotonic() - start < 1

@@ -16,19 +16,46 @@
 {% set att = b.files | length %}
 {% set days = "1 day" if b.link_days == 1 else b.link_days ~ " days" %}
 {% set expiry = ("the link works" if n == 1 else "links work") ~ " for " ~ days %}
-{% if att %}{{ att }} {{ "is" if att == 1 else "are" }} attached as a ZIP; {{ n }} {{ "was" if n == 1 else "were" }} too large to email, so {{ "it's" if n == 1 else "they're" }} linked below ({{ expiry }}).
+{% if att %}{{ att }} {{ "is" if att == 1 else "are" }} attached as a ZIP here; {{ n }} {{ "was" if n == 1 else "were" }} too large to email, so {{ "it's" if n == 1 else "they're" }} linked below ({{ expiry }}).
 {%- elif n == 1 %}It was too large to email, so it's linked below ({{ expiry }}).
 {%- elif n == 2 %}Both were too large to email, so they're linked below ({{ expiry }}).
 {%- else %}All {{ n }} were too large to email, so they're linked below ({{ expiry }}).
 {%- endif %}
 {%- endmacro %}
 
-{% macro sentence(b) -%}
-{% if b.mode == "none" and b.total == 1 %}I couldn't attach the only {{ b.label }}, so there is no ZIP this time. The reason is below.
-{%- elif b.mode == "none" %}I tried {{ b.tried }} of the {{ b.total }} {{ b.label }}, but none could be attached, so there is no ZIP this time. The reasons are below.
-{%- elif b.links %}{{ lead(b) }}. {{ delivery(b) }}
-{%- else %}{{ lead(b) }} and attached {{ "it" if b.got == 1 else "them" }} as a ZIP.
+{# Why fewer arrived than were asked for; empty when the batch is full. Starts with a space. #}
+{% macro why(b) -%}
+{% set r = b.restricted | length %}
+{% set f = b.problems | length %}
+{% if b.ran_out and r and f %} I skipped {{ r }} {{ b.one if r == 1 else b.many }} {{ "that is" if r == 1 else "that are" }} {{ b.marked }} on the UARB site, and {{ f }} more couldn't be included; details are below.
+{%- elif b.ran_out and r %} The other {{ r }} {{ "is" if r == 1 else "are" }} {{ b.marked }} on the UARB site, so I skipped {{ "it" if r == 1 else "them" }}.
+{%- elif b.short and f %} I couldn't include {{ f }} {{ "other; the reason is" if f == 1 else "others; the reasons are" }} below.
 {%- endif %}
+{%- if b.stopped %} Downloading from the UARB site was taking a while, so I stopped there to reply quickly; reply MORE for the next ones.{% endif %}
+{%- endmacro %}
+
+{# Nothing to send because every document looked at is one the site only shows a notice for. #}
+{% macro all_restricted(b) -%}
+{% set r = b.restricted | length %}
+{% if r == b.total and r == 1 %}The only {{ b.one }} is
+{%- elif r == b.total and r == 2 %}Both {{ b.many }} are
+{%- elif r == b.total %}All {{ r }} {{ b.many }} are
+{%- elif r == 1 %}{{ b.window | capitalize }} of the {{ b.total }} {{ b.label }} is
+{%- else %}{{ b.window | capitalize }} of the {{ b.total }} {{ b.label }} are all
+{%- endif %} {{ b.marked }} on the UARB site, which only offers a notice in {{ "its" if r == 1 else "their" }} place, so there is no ZIP this time.
+{%- endmacro %}
+
+{% macro sentence(b) -%}
+{% if b.mode == "restricted" %}{{ all_restricted(b) }}
+{%- elif b.mode == "none" and b.total == 1 %}I couldn't attach the only {{ b.label }}, so there is no ZIP this time. The reason is below.
+{%- elif b.mode == "none" %}I tried {{ b.tried }} of the {{ b.total }} {{ b.label }}, but none could be attached, so there is no ZIP this time. The reasons are below.
+{%- elif b.links %}{{ lead(b) }}. {{ delivery(b) }}{{ why(b) }}
+{%- else %}{{ lead(b) }} and am attaching {{ "it" if b.got == 1 else "them" }} as a ZIP here.{{ why(b) }}
+{%- endif %}
+{%- endmacro %}
+
+{% macro restricted_heading(b) -%}
+Skipped as {{ b.marked }} (the UARB site only offers a notice in {{ "its" if b.restricted | length == 1 else "their" }} place):
 {%- endmacro %}
 
 {% macro receipt(b) -%}
@@ -38,6 +65,7 @@ Retrieved from {{ b.site }}{{ (" in " ~ b.seconds ~ " s") if b.seconds else "" }
 
 {% macro text(b) %}
 {{ c.about(b.p) }} {{ sentence(b) }}
+{{ c.decision_text(b.p) }}
 {% if b.files %}
 
 Attached:
@@ -50,6 +78,13 @@ Attached:
 Download links:
 {% for f in b.links %}
 - {{ f.doc_no }} {{ f.title }}{{ (" (" ~ f.meta ~ ")") if f.meta else "" }}: {{ f.url }}
+{% endfor %}
+{% endif %}
+{% if b.restricted %}
+
+{{ restricted_heading(b) }}
+{% for s in b.restricted %}
+- {{ s.doc_no }} {{ s.title }}
 {% endfor %}
 {% endif %}
 {% if b.problems %}
@@ -72,6 +107,7 @@ You can also reply with another type: {{ b.others | oxford("or") }}.
 
 {% macro html(b) %}
 <p>{{ c.about(b.p) }} {{ sentence(b) }}</p>
+{{ c.decision_html(b.p) }}
 {% if b.files %}
 <table cellpadding="4" cellspacing="0" style="border-collapse:collapse;font-size:13px;margin:0 0 12px">
 <tr style="text-align:left;color:#59636e"><th>No.</th><th>Title</th><th>Details</th></tr>
@@ -88,6 +124,14 @@ You can also reply with another type: {{ b.others | oxford("or") }}.
 <tr style="border-top:1px solid #d1d9e0;vertical-align:top"><td style="white-space:nowrap">{{ f.doc_no }}</td><td>{{ f.title }}</td><td style="white-space:nowrap">{{ f.meta }}</td><td><a href="{{ f.url }}">Download</a></td></tr>
 {% endfor %}
 </table>
+{% endif %}
+{% if b.restricted %}
+<p style="margin-bottom:4px">{{ restricted_heading(b) }}</p>
+<ul style="margin-top:0">
+{% for s in b.restricted %}
+<li>{{ s.doc_no }} {{ s.title }}</li>
+{% endfor %}
+</ul>
 {% endif %}
 {% if b.problems %}
 <p style="margin-bottom:4px">Not included:</p>

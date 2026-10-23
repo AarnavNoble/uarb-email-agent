@@ -1,0 +1,53 @@
+{# Reply to SEARCH: what was searched (honestly: only documents already downloaded), then cited pages. #}
+{% macro scope(b) -%}
+{% set docs = "1 document" if b.documents == 1 else b.documents ~ " documents" %}
+{% set pages = "1 page" if b.pages == "1" else b.pages ~ " pages" %}
+{% if b.documents == 0 and b.matter %}I haven't downloaded any documents from {{ b.matter }} yet, so there is nothing of it to search. Ask me for its documents first (for example "Key Documents for {{ b.matter }}") and they become searchable.
+{%- elif b.documents == 0 %}I haven't downloaded any documents yet, so there is nothing to search. Ask me for a matter's documents first (for example "Key Documents for {{ b.example }}") and they become searchable.
+{%- elif b.matter %}I searched the {{ docs }} ({{ pages }}) from {{ b.matter }} that I've already downloaded for "{{ b.query }}". That's only what someone has asked me for so far, not everything {{ b.matter }} has on the UARB site.
+{%- else %}I searched the {{ docs }} ({{ pages }}, from {{ b.matters }} {{ "matter" if b.matters == 1 else "matters" }}) that I've already downloaded for "{{ b.query }}". That's only what someone has asked me for so far, not the whole UARB site.
+{%- endif %}
+{%- if b.documents and b.scanned %} {{ b.scanned }} scanned {{ "page has" if b.scanned == 1 else "pages have" }} no text layer, so only {{ "its title is" if b.scanned == 1 else "their titles are" }} searchable.{% endif %}
+{%- endmacro %}
+
+{% macro lead(b) -%}
+{% if not b.hits %}None of their pages mention "{{ b.query }}". Try fewer or different words{{ ", or leave out the matter number to search everything I have" if b.matter else "" }}.
+{%- elif b.closest %}No single page has every word of "{{ b.query }}", so {{ "this is the closest match" if b.hits | length == 1 else "these are the closest matches" }}:
+{%- elif b.hits | length == 1 %}The best match:
+{%- else %}The {{ b.hits | length }} best matches:
+{%- endif %}
+{%- endmacro %}
+
+{% macro get_hint(h) -%}
+Reply GET {{ h.doc_no }} from {{ h.matter }} to get this document.
+{%- endmacro %}
+
+{% macro text(b) %}
+{{ scope(b) }}
+{% if b.documents %}
+
+{{ lead(b) }}
+{% for h in b.hits %}
+
+{{ loop.index }}. {{ h.doc_no }} {{ h.title }} ({{ h.where }}), page {{ h.page }}
+"{{ h.snippet | replace("**", "") }}"
+{{ get_hint(h) }}
+{% endfor %}
+{% endif %}
+{% endmacro %}
+
+{% macro html(b) %}
+<p>{{ scope(b) }}</p>
+{% if b.documents %}
+<p>{{ lead(b) }}</p>
+{% if b.hits %}
+<ol>
+{% for h in b.hits %}
+<li style="margin-bottom:10px"><b>{{ h.doc_no }} {{ h.title }}</b> ({{ h.where }}), page {{ h.page }}<br>
+&ldquo;{{ h.snippet_html }}&rdquo;<br>
+<span style="color:#59636e;font-size:13px">{{ get_hint(h) }}</span></li>
+{% endfor %}
+</ol>
+{% endif %}
+{% endif %}
+{% endmacro %}

@@ -1,4 +1,4 @@
-Hi,
+Hi there,
 
 Here's what I can do with the Nova Scotia UARB matter database:
 
@@ -7,6 +7,7 @@ Here's what I can do with the Nova Scotia UARB matter database:
 - MORE: reply in the same thread for the next 10.
 - GET <document number>: reply in the same thread for one specific document.
 - WATCH M01234: I'll email you when something new is filed. UNWATCH M01234 stops it.
+- SEARCH <words>: find pages that mention them in the documents I've already downloaded, for example "SEARCH semi-annual reports in M01234". Each match comes with its document number, page and the GET command for it.
 
 The types are Exhibits, Key Documents, Other Documents, Transcripts, or Recordings.
 

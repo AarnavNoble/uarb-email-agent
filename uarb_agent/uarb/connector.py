@@ -49,6 +49,7 @@ MATTER_BOX = "div.fm-textarea:has(div.placeholder:text-is('eg M01234'))"
 SCROLLER = ".v-grid-scroller-vertical"
 MAX_SCROLLS = 200
 SCROLL_PAUSE_MS = 400
+TRACE_TIMEOUT_S = 3.0  # per page capture when saving a failure trace
 
 # Visible text boxes above the tab bar: the header labels and their values.
 HEADER_JS = r"""() => {
@@ -354,6 +355,10 @@ class UarbSession:
         window = self.page.locator(".v-window").first
         await window.wait_for(timeout=10_000)
         header = (await window.locator(".v-window-header").inner_text()).strip()
+        if "export" in header.lower():  # Transcripts and Recordings ask for a filename first
+            await self._confirm_export(window)
+            window = self.page.locator(".v-window").first
+            header = (await window.locator(".v-window-header").inner_text()).strip()
         if "download" not in header.lower():
             text = await window.inner_text()
             await self._dismiss_modal()
@@ -369,6 +374,26 @@ class UarbSession:
         files = [await self._save(buttons.nth(i), row, dest) for i in range(await buttons.count())]
         await self._dismiss_modal()
         return files
+
+    async def _confirm_export(self, window: Locator) -> None:
+        """'Export Field to File' asks for a Save As name (default e.g. 'NSEB-M12600-August 18, 2026.pdf'), then
+        OK opens the usual Download Files dialog. The server puts that name unquoted into Content-Disposition, so
+        a comma makes Chromium refuse the response (ERR_RESPONSE_HEADERS_MULTIPLE_CONTENT_DISPOSITION): strip
+        the characters that break the header before confirming."""
+        field = window.locator("input").first
+        if await field.count():
+            name = await field.input_value()
+            safe = re.sub(r'[,;"\\]+', "", name).strip()
+            if safe and safe != name:
+                await field.fill(safe)
+                await self.page.wait_for_timeout(300)
+        ok = window.get_by_role("button", name=re.compile(r"^OK$", re.I))
+        if not await ok.count():
+            text = clean_modal_text(await window.inner_text())
+            await self._dismiss_modal()
+            raise UnexpectedModal(text)
+        await ok.first.click()
+        await self.page.locator(".v-window .fm-download-button").first.wait_for(timeout=15_000)
 
     async def _go_get_it(self, row: DocRow) -> Locator:
         """Bring `row` fully into the grid's viewport and return its GO GET IT button."""
@@ -412,17 +437,21 @@ class UarbSession:
     # --- tracing -----------------------------------------------------------------------------------
 
     async def save_trace(self, label: str, exc: BaseException | None = None) -> Path | None:
-        """Screenshot + HTML (+ error text) into trace_dir. Never raises: tracing must not mask the error."""
+        """Error text + screenshot + HTML into trace_dir, cheapest first. Never raises: tracing must not mask the
+        error. Each page capture gets a few seconds at most; on a hung site it hangs too, and must not eat the
+        request's time budget."""
         try:
             await asyncio.to_thread(self.trace_dir.mkdir, parents=True, exist_ok=True)
-            await self.page.screenshot(path=self.trace_dir / f"{label}.png", full_page=True, timeout=10_000)
-            html = await self.page.content()
-            await asyncio.to_thread((self.trace_dir / f"{label}.html").write_text, html)
             if exc is not None:
                 note = f"{type(exc).__name__}: {exc}\nmatter={self.matter} tab={self._tab}\n"
                 await asyncio.to_thread((self.trace_dir / f"{label}.txt").write_text, note)
+            await self.page.screenshot(
+                path=self.trace_dir / f"{label}.png", full_page=True, timeout=TRACE_TIMEOUT_S * 1000
+            )
+            html = await asyncio.wait_for(self.page.content(), TRACE_TIMEOUT_S)
+            await asyncio.to_thread((self.trace_dir / f"{label}.html").write_text, html)
             log.info("uarb.trace.saved", dir=str(self.trace_dir), label=label)
             return self.trace_dir
-        except Exception as e:  # page may be gone
+        except Exception as e:  # page may be gone or hung
             log.warning("uarb.trace.failed", error=repr(e))
             return None

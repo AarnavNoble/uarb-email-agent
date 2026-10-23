@@ -1,12 +1,23 @@
+import time
 import urllib.parse
 import zipfile
+from contextlib import asynccontextmanager
 
+import pymupdf
 import pytest
 
-from tests.fake_site import COUNTS, FakeSite, make_rows
+from tests.fake_site import COUNTS, FakeSession, FakeSite, make_rows
 from uarb_agent.cache.store import Store
 from uarb_agent.config import Settings
-from uarb_agent.core import CONFIDENTIAL_REASON, Fetcher, as_error
+from uarb_agent.core import (
+    BOARD_ONLY_REASON,
+    CONFIDENTIAL_REASON,
+    NOTICE_REASON,
+    Fetcher,
+    as_error,
+    is_confidentiality_notice,
+    request_timeout_s,
+)
 from uarb_agent.models import DocType, InvalidMatterNumber, MatterNotFound, SiteUnavailable
 
 OTHER = DocType.OTHER_DOCUMENTS
@@ -183,3 +194,159 @@ async def test_rows_come_newest_first_whatever_the_site_order(tmp_path):
     report = await fetcher_for(tmp_path, site).fetch("M12205", key, limit=1)
     assert [r.date for r in report.rows] == sorted((r.date for r in rows[key]), reverse=True)
     assert report.downloaded[0].doc_no == max(rows[key], key=lambda r: r.date).doc_no
+
+
+async def test_board_only_and_other_non_public_levels_are_skipped(tmp_path):
+    # Live: M12600 has 5 'Board Only' exhibits and M10431 has 8; the site serves a confidentiality notice for them.
+    rows = {t: make_rows(t, n) for t, n in COUNTS.items()}
+    other = make_rows(OTHER, 14)
+    other[0] = other[0].model_copy(update={"security": "Board Only"})
+    other[1] = other[1].model_copy(update={"security": "Sealed"})
+    other[2] = other[2].model_copy(update={"security": None})  # hearing rows often have no level: public
+    rows[OTHER] = other
+    site = FakeSite(rows=rows)
+    report = await fetcher_for(tmp_path, site).fetch("M12205", OTHER)
+    reasons = {s.doc_no: s.reason for s in report.skipped}
+    assert reasons == {other[0].doc_no: BOARD_ONLY_REASON, other[1].doc_no: reasons[other[1].doc_no]}
+    assert "'Sealed'" in reasons[other[1].doc_no]
+    assert other[0].doc_no not in site.downloaded and other[1].doc_no not in site.downloaded
+    assert report.downloaded[0].doc_no == other[2].doc_no and len(report.downloaded) == 10
+
+
+def _pdf(path, text: str) -> None:
+    doc = pymupdf.open()
+    doc.new_page().insert_text((72, 72), text)
+    doc.save(path)
+    doc.close()
+
+
+def test_is_confidentiality_notice(tmp_path):
+    _pdf(tmp_path / "n.pdf", "Document: 320036\n\nCONFIDENTIALITY NOTICE\n\nThe document you are attempting ...")
+    _pdf(tmp_path / "d.pdf", "Board Order\n\nThis order concerns a confidentiality notice filed by ...")
+    (tmp_path / "junk.pdf").write_bytes(b"%PDF-1.4 not really")
+    assert is_confidentiality_notice(tmp_path / "n.pdf")
+    assert not is_confidentiality_notice(tmp_path / "d.pdf")
+    assert not is_confidentiality_notice(tmp_path / "junk.pdf")
+
+
+async def test_a_downloaded_confidentiality_notice_is_skipped_not_delivered(tmp_path):
+    # Safety net for a non-public row the listing marked Public: the notice must not count as the document.
+    site = FakeSite()
+    notice = site.rows[OTHER][1].doc_no
+
+    class NoticeSession(FakeSession):
+        async def download(self, rows, dest):
+            out = await super().download(rows, dest)
+            if rows[0].doc_no == notice:
+                _pdf(out[0].path, "Document: 1\nCONFIDENTIALITY NOTICE\nThe document you are attempting ...")
+            return out
+
+    @asynccontextmanager
+    async def session(trace_id=None):
+        yield NoticeSession(site)
+
+    site.session = session
+    c = fetcher_for(tmp_path, site)
+    report = await c.fetch("M12205", OTHER)
+    assert [(s.doc_no, s.reason) for s in report.skipped] == [(notice, NOTICE_REASON)]
+    assert notice not in [f.doc_no for f in report.files] and len(report.downloaded) == 10
+    assert c.store.get_doc("M12205", OTHER, notice) is None
+
+
+async def test_a_file_slower_than_the_budget_is_cut_off_mid_download(tmp_path):
+    # Regression: the budget was only checked between files, so one 212 MB recording ran past the worker's
+    # timeout and the whole request failed as 'site not responding'.
+    site = FakeSite(download_delay=30)
+    c = fetcher_for(tmp_path, site)
+    c.download_budget_s = 0.1
+    start = time.monotonic()
+    report = await c.fetch("M12205", OTHER)
+    assert time.monotonic() - start < 2
+    # Nothing landed, so the cut-off row is reported (MORE moves past it instead of retrying it forever).
+    [failed] = report.files
+    assert failed.doc_no == report.rows[0].doc_no and not failed.ok and "did not finish" in failed.error
+
+
+async def test_a_cut_off_file_after_others_is_left_for_more(tmp_path):
+    site = FakeSite()
+    c = fetcher_for(tmp_path, site)
+    first = await c.fetch("M12205", OTHER, limit=2)  # cached now
+    site.download_delay = 30
+    c.download_budget_s = 0.1
+    report = await c.fetch("M12205", OTHER)
+    assert [f.doc_no for f in report.files] == [f.doc_no for f in first.downloaded]  # the slow third is unreported
+    assert all(f.ok for f in report.files)
+
+
+def test_hearing_tabs_get_a_longer_budget():
+    c = Fetcher(Settings(), connector=FakeSite(), store=None)
+    assert c.budget_s(DocType.RECORDINGS) >= 200 and c.budget_s(DocType.TRANSCRIPTS) > c.budget_s(OTHER)
+    assert c.budget_s(None) == c.budget_s(OTHER) == c.download_budget_s
+    assert request_timeout_s(OTHER) == 120  # what the worker has always allowed per request
+    assert request_timeout_s(DocType.RECORDINGS) > c.budget_s(DocType.RECORDINGS)
+
+
+def _pages_pdf(path, pages: list[str]) -> None:
+    doc = pymupdf.open()
+    for text in pages:
+        doc.new_page().insert_text((36, 36), text, fontsize=8)
+    doc.save(path)
+    doc.close()
+
+
+def _site_with_board_order() -> FakeSite:
+    """M12205 with a real-looking Board Order as its newest Key Document."""
+    from tests.unit.test_outcome import ORDER_12205
+
+    site = FakeSite()
+    key = DocType.KEY_DOCUMENTS
+    site.rows[key][0] = site.rows[key][0].model_copy(update={"title": "Board Order"})
+    order_no = site.rows[key][0].doc_no
+
+    class OrderSession(FakeSession):
+        async def download(self, rows, dest):
+            out = await super().download(rows, dest)
+            if rows[0].doc_no == order_no:
+                _pages_pdf(out[0].path, ORDER_12205)
+            return out
+
+    @asynccontextmanager
+    async def session(trace_id=None):
+        yield OrderSession(site)
+
+    site.session = session
+    return site
+
+
+async def test_fetched_documents_are_indexed_and_the_decision_is_read_from_the_cache(tmp_path):
+    fetcher = fetcher_for(tmp_path, _site_with_board_order())
+    key = await fetcher.fetch("M12205", DocType.KEY_DOCUMENTS)
+    assert key.decision and key.decision.startswith("Board decision: approved $59,143,000 of $64,769,000 requested")
+    assert "Board Order" in key.decision and "semi-annual" in key.decision
+
+    hits = fetcher.index.search("semi-annual reports", matter="M12205")
+    assert [(h.doc_no, h.page) for h in hits] == [(key.rows[0].doc_no, 2)]
+    assert fetcher.index.stats("M12205").documents == 2
+
+    # A later summary (or any other tab) gets the same line from the cache, without downloading anything.
+    summary = await fetcher.fetch("M12205", None)
+    assert summary.decision == key.decision
+    other = await fetcher.fetch("M12205", OTHER, limit=1)
+    assert other.decision == key.decision
+    await fetcher.close()
+
+
+async def test_no_board_order_in_the_cache_means_no_decision(tmp_path):
+    fetcher = fetcher_for(tmp_path, FakeSite())
+    assert (await fetcher.fetch("M12205", DocType.KEY_DOCUMENTS)).decision is None  # titles are not orders
+    assert (await fetcher.fetch("M12205", None)).decision is None
+    await fetcher.close()
+
+
+async def test_the_decision_goes_into_the_zip_readme(tmp_path):
+    fetcher = fetcher_for(tmp_path, _site_with_board_order())
+    report = await fetcher.fetch("M12205", DocType.KEY_DOCUMENTS)
+    packed = fetcher.pack(report, tmp_path / "out")
+    with zipfile.ZipFile(packed.path) as zf:
+        assert report.decision in zf.read("README.txt").decode()
+    await fetcher.close()

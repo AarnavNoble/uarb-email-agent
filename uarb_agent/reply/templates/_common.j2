@@ -1,12 +1,34 @@
-{# The matter paragraph shared by most replies: what it is, its dates, and all five counts in site order. #}
+{# The matter paragraph shared by most replies: what it is, its dates and status, then the total and each tab. #}
 {% macro about(p) -%}
 {{ p.matter }} is about {{ p.title }}.
-{%- if p.type and p.category %} It relates to {{ p.type }} within the {{ p.category }} category.{% endif %}
+{%- if p.category and p.type %} It relates to {{ p.category }} within the {{ p.type }} category.
+{%- elif p.category %} It relates to {{ p.category }}.
+{%- elif p.type %} It's {{ p.a_type }} matter.
+{%- endif %}
 {%- if p.received and p.final %} The matter had an initial filing on {{ p.received }} and a final filing on {{ p.final }}.
+{%- elif p.received and p.closed %} The matter had an initial filing on {{ p.received }}; no final filing date is recorded.
 {%- elif p.received %} The matter had an initial filing on {{ p.received }} and has no final filing yet.
 {%- elif p.final %} The matter had a final filing on {{ p.final }}.
+{%- endif %}
+{%- if p.status and p.outcome %} The matter is {{ p.status }}; outcome: {{ p.outcome }}.
+{%- elif p.status %} The matter is {{ p.status }}.
+{%- elif p.outcome %} Outcome: {{ p.outcome }}.
 {%- endif %} I found {{ p.counts }}.
 {%- endmacro %}
+
+{# What the Board decided, as read from its own order (with doc and page). Only present when it was found. #}
+{% macro decision_text(p) %}
+{% if p.decision %}
+
+{{ p.decision }}
+{% endif %}
+{% endmacro %}
+
+{% macro decision_html(p) %}
+{% if p.decision %}
+<p>{{ p.decision }}</p>
+{% endif %}
+{% endmacro %}
 
 {% macro watch_hint(matter) -%}
 Reply WATCH {{ matter }} and I'll email you when something new is filed.

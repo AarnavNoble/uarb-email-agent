@@ -169,3 +169,40 @@ def test_row_ignores_button_captions_and_empty_rows():
     row = parse_row(boxes, DocType.KEY_DOCUMENTS)
     assert (row.doc_no, row.title, row.ext, row.security) == ("97291", "Hearing Order", ".pdf", "Public")
     assert parse_row([], DocType.KEY_DOCUMENTS) is None
+
+
+def _boxes(*cells):
+    """(text, x, y, w) cells as the grid script reports them, with the row's buttons."""
+    out = [{"t": t, "x": x, "y": y, "w": w, "h": 26} for t, x, y, w in cells]
+    return out + [{"t": "GO GET IT", "x": 1180, "y": 35, "w": 100, "h": 26}]
+
+
+def test_hearing_rows_get_unique_ids_without_a_doc_no_column():
+    # Geometry captured live: M10431 Transcripts (two rows on 09/12/2022), M12600 Transcripts (panel names, the
+    # same first name on two days) and M10431 Recordings (title only). Keyed by the first box, rows collapsed.
+    pairs = [
+        (("09/12/2022", 6, 3, 104), ("September 12, 2022", 115, 3, 254), ("Pdf", 369, 3, 254), ("Public", 6, 35, 104)),
+        (
+            ("09/12/2022", 6, 3, 104),
+            ("September 12, 2022", 115, 3, 254),
+            ("Evening Session", 369, 3, 254),
+            ("Pdf", 623, 3, 254),
+            ("Public", 6, 35, 104),
+        ),
+        (("08/18/2026", 6, 3, 104), ("Chris Lanteigne", 115, 3, 254), ("Lia MacDonald", 369, 3, 254)),
+        (("08/19/2026", 6, 3, 104), ("Chris Lanteigne", 115, 3, 254), ("Lia MacDonald", 369, 3, 254)),
+    ]
+    rows = [parse_row(_boxes(*cells), DocType.TRANSCRIPTS) for cells in pairs]
+    assert len({r.doc_no for r in rows}) == 4
+    assert rows[1].title == "September 12, 2022 - Evening Session" and rows[1].ext == ".pdf"
+    assert rows[1].security == "Public" and rows[1].date == dt.date(2022, 9, 12)
+    assert re.fullmatch(r"T-20220912-[0-9a-f]{4}", rows[0].doc_no)
+    assert rows[2].title == "Chris Lanteigne - Lia MacDonald" and rows[2].ext is None
+    # Stable across listings, so the cache and GO GET IT find the same row again.
+    assert parse_row(_boxes(*pairs[0]), DocType.TRANSCRIPTS).doc_no == rows[0].doc_no
+
+    rec = parse_row(
+        _boxes(("09/12/2022", 6, 3, 104), ("M10431 – NS Power 2022 GRA - Monday", 115, 3, 1056)), DocType.RECORDINGS
+    )
+    assert rec.doc_no.startswith("R-20220912-") and rec.title == "M10431 – NS Power 2022 GRA - Monday"
+    assert rec.security is None
